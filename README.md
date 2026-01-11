@@ -1,0 +1,86 @@
+# Waa-Shell (Tauri + React + Tailwind v4)
+
+Waa-Shell は、Tauri v2 を基盤とした、ローカルファーストかつアクセシビリティを重視した AI チャットアプリケーションです。
+Raycast 風のランチャーモードを備え、作業中にグローバルショートカットから即座に AI と対話することができます。
+
+## 🚀 技術スタック
+
+- **Core**: [Tauri v2](https://tauri.app/)
+- **Frontend**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
+- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+- **Database**: [Dexie.js](https://dexie.org/) (IndexedDB)
+- **State Management**: [Zustand](https://zustand-demo.pmnd.rs/), [TanStack Query](https://tanstack.com/query/latest)
+- **AI & MCP**: [OpenAI Node SDK](https://github.com/openai/openai-node), [Model Context Protocol SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- **Rendering**: [React Markdown](https://github.com/remarkjs/react-markdown), [KaTeX](https://katex.org/) (Math), [React Syntax Highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter)
+- **Linting & Formatting**: [Biome](https://biomejs.dev/)
+- **Icons**: [Lucide React](https://lucide.dev/)
+
+## 📁 プロジェクト構成
+
+```text
+waa-shell/
+├── src-tauri/            # Rust (Backend) 関連コード
+│   ├── capabilities/    # Tauri 権限設定 (Permission files)
+│   ├── gen/             # 自動生成コード (Schemas)
+│   └── src/             # Rust ロジック (Window管理, ショートカット等)
+├── src/                  # Frontend (React) 関連コード
+│   ├── components/      # UI コンポーネント
+│   │   ├── chat/        # チャット機能関連 (Message, Input)
+│   │   ├── command/     # スラッシュコマンド管理
+│   │   ├── common/      # 共通コンポーネント (FileExplorer等)
+│   │   ├── layout/      # レイアウト (Sidebar等)
+│   │   └── settings/    # 設定画面
+│   ├── lib/             # ビジネスロジック・ライブラリ
+│   │   ├── constants/   # 定数定義
+│   │   ├── db/          # データベース操作 (Tables, Queries)
+│   │   ├── services/    # アプリケーションサービス (Chat, Model, MCP)
+│   │   └── utils/       # ユーティリティ関数
+│   ├── store/           # グローバル状態管理 (Zustand)
+│   ├── index.css        # Tailwind v4 ディレクティブ & テーマ変数
+│   └── App.tsx          # メインエントリー・ルーティング・レイアウト制御
+├── specs/                # 設計ドキュメント・要件定義書
+└── biome.json            # Biome 設定ファイル
+```
+
+## 🛠️ セットアップ
+
+### 必要条件
+
+- [Rust](https://www.rust-lang.org/) (Tauri 開発用)
+- [Node.js](https://nodejs.org/) (v18+)
+
+### インストール
+
+```bash
+npm install
+```
+
+### 開発実行
+
+```bash
+npm run tauri dev
+```
+
+### ビルド
+
+```bash
+npm run tauri build
+```
+
+## ✨ 主な機能
+
+- **Raycast 風ランチャー**: `Ctrl+Alt+A` で即座にチャット入力を起動。
+- **マルチウィンドウ**: フル機能のメインウィンドウと、コンパクトなランチャーウィンドウを切り替え。
+- **ローカルファースト**: 会話履歴や設定はすべてローカルの IndexedDB に保存。
+- **マルチモーダル**: 画像や PDF のアップロード・読み取りに対応。
+
+## 📄 ライセンス (License)
+
+このプロジェクトのソースコードは **MIT License** の下で公開されています。
+詳細は [LICENSE](LICENSE) ファイルを参照してください。
+
+### 🎨 アセットについての注記 (Note on Assets)
+
+このリポジトリに含まれる AI 生成された画像およびアセットは、[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/deed.ja) (パブリックドメイン) として提供されています。
+これらは著作権による制限なく、自由に利用、改変、配布することができます。
+

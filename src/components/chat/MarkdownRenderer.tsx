@@ -43,7 +43,7 @@ function CodeBlock({ className, children, ...props }: MdProps<'code'>) {
   const language = (match || [])[1] || '';
   return (
     <div className="overflow-hidden border border-border">
-      <div className="bg-muted px-3 py-1.5 text-xs text-muted-foreground border-b border-border flex justify-between items-center">
+      <div className="bg-muted px-3 py-1.5 text-xs text-muted-foreground border-b flex justify-between items-center">
         <span className="font-mono">{language}</span>
         <button
           type="button"

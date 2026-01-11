@@ -109,7 +109,7 @@ export function CommandManager() {
               登録済みコマンド
             </h3>
             {commands.length === 0 && (
-              <div className="p-8 border border-dashed border-border rounded-lg text-center text-muted-foreground text-sm bg-muted/20">
+              <div className="p-8 border border-dashed rounded-lg text-center text-muted-foreground text-sm bg-muted/20">
                 コマンドが登録されていません
               </div>
             )}
@@ -117,7 +117,7 @@ export function CommandManager() {
               {commands.map((cmd) => (
                 <div
                   key={cmd.id}
-                  className="p-4 bg-muted/30 rounded-md border border-border hover:border-primary/20 transition-all group"
+                  className="p-4 bg-muted/30 rounded-md border hover:border-primary/20 transition-all group"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div>
@@ -171,7 +171,7 @@ export function CommandManager() {
                       </span>
                       <input
                         id="cmd-key"
-                        className="w-full bg-background border border-border rounded-md pl-6 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full bg-background border rounded-md pl-6 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="summary"
                         value={editingCommand.key}
                         onChange={(e) => updateEditing({ key: e.target.value })}
@@ -187,7 +187,7 @@ export function CommandManager() {
                     </label>
                     <input
                       id="cmd-label"
-                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="要約"
                       value={editingCommand.label}
                       onChange={(e) => updateEditing({ label: e.target.value })}
@@ -201,7 +201,7 @@ export function CommandManager() {
                   </label>
                   <input
                     id="cmd-desc"
-                    className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="プロンプトの用途を簡潔に"
                     value={editingCommand.description}
                     onChange={(e) => updateEditing({ description: e.target.value })}
@@ -218,7 +218,7 @@ export function CommandManager() {
                   <textarea
                     id="cmd-content"
                     rows={5}
-                    className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono"
+                    className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono"
                     placeholder="以下の内容を要約して：\n\n{{text}}"
                     value={editingCommand.content}
                     onChange={(e) => updateEditing({ content: e.target.value })}
@@ -239,7 +239,7 @@ export function CommandManager() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <input
-                            className="bg-background border border-border rounded px-2 py-1 text-[10px] focus:ring-1 focus:ring-ring"
+                            className="bg-background border rounded px-2 py-1 text-[10px] focus:ring-1 focus:ring-ring"
                             placeholder="表示ラベル (例: 対象文)"
                             value={v.label}
                             onChange={(e) => {
@@ -249,7 +249,7 @@ export function CommandManager() {
                             }}
                           />
                           <textarea
-                            className="bg-background border border-border rounded px-2 py-1 text-[10px] focus:ring-1 focus:ring-ring col-span-2 resize-none"
+                            className="bg-background border rounded px-2 py-1 text-[10px] focus:ring-1 focus:ring-ring col-span-2 resize-none"
                             rows={2}
                             placeholder="初期値"
                             value={v.defaultValue}
@@ -285,7 +285,7 @@ export function CommandManager() {
                 </div>
               </div>
             ) : (
-              <div className="h-64 border border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground text-sm space-y-2 bg-muted/10">
+              <div className="h-64 border border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground text-sm space-y-2 bg-muted/10">
                 <p>コマンドを選択して編集するか</p>
                 <p>新しいコマンドを作成してください</p>
               </div>

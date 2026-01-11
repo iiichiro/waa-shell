@@ -69,7 +69,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: 'AI Chat Launcher ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseName: 'Waa-Shell ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
             ## Downloads
             

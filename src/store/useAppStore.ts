@@ -32,6 +32,16 @@ interface AppState {
 
   theme: 'light' | 'dark' | 'system';
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
+
+  // Title Generation Settings
+  autoGenerateTitle: boolean;
+  setAutoGenerateTitle: (autoGenerate: boolean) => void;
+
+  titleGenerationProvider: string;
+  setTitleGenerationProvider: (providerId: string) => void;
+
+  titleGenerationModel: string;
+  setTitleGenerationModel: (modelId: string) => void;
 }
 
 // Zustandを使用したストアの実装本体
@@ -85,6 +95,16 @@ export const useAppStore = create<AppState>()(
 
       isThreadSettingsOpen: false,
       setThreadSettingsOpen: (isOpen) => set({ isThreadSettingsOpen: isOpen }),
+
+      // Title Generation Settings
+      autoGenerateTitle: false,
+      setAutoGenerateTitle: (autoGenerate) => set({ autoGenerateTitle: autoGenerate }),
+
+      titleGenerationProvider: '',
+      setTitleGenerationProvider: (providerId) => set({ titleGenerationProvider: providerId }),
+
+      titleGenerationModel: '',
+      setTitleGenerationModel: (modelId) => set({ titleGenerationModel: modelId }),
     }),
     {
       name: 'aichat-app-storage',
@@ -92,6 +112,9 @@ export const useAppStore = create<AppState>()(
         sendShortcut: state.sendShortcut,
         isSidebarOpen: state.isSidebarOpen,
         theme: state.theme,
+        autoGenerateTitle: state.autoGenerateTitle,
+        titleGenerationProvider: state.titleGenerationProvider,
+        titleGenerationModel: state.titleGenerationModel,
       }),
     },
   ),

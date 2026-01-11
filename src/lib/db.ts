@@ -76,7 +76,6 @@ export interface SlashCommand {
  * AIプロバイダー設定
  */
 export type ProviderType =
-  | 'openai'
   | 'azure'
   | 'anthropic'
   | 'google'

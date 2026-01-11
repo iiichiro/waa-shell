@@ -21,7 +21,7 @@ export function CommonHeader({
 
   return (
     <header
-      className={`border-b border-border flex items-center justify-between bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-20 ${
+      className={`border-b flex items-center justify-between bg-background/80 backdrop-blur-xl shrink-0 sticky top-0 z-20 ${
         isLauncher ? 'h-11 px-3 cursor-move select-none' : 'h-14 px-6'
       } ${className}`}
       data-tauri-drag-region={isLauncher ? 'true' : undefined}
@@ -35,8 +35,8 @@ export function CommonHeader({
         <button
           type="button"
           onClick={toggleSidebar}
-          className={`p-2 hover:bg-accent rounded-md text-muted-foreground hover:text-foreground transition-colors ${
-            isLauncher ? 'hidden' : 'flex'
+          className={`p-2 hover:bg-accent rounded-md text-muted-foreground hover:text-foreground transition-colors hidden ${
+            !isLauncher && 'md:flex'
           }`}
           title={isSidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く'}
         >

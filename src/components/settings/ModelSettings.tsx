@@ -381,8 +381,9 @@ export function ModelSettings() {
           <select
             value={targetProviderId}
             onChange={(e) => setTargetProviderId(e.target.value)}
-            className="bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            className={`border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring ${providers.length === 0 ? 'border-red-500 text-red-500' : 'bg-background text-foreground'}`}
           >
+            {providers.length === 0 && <option value="">プロバイダーなし</option>}
             {providers.map((p) => (
               <option key={p.id} value={p.id?.toString()}>
                 {p.name}
@@ -394,7 +395,7 @@ export function ModelSettings() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'all' | 'enabled' | 'disabled')}
-            className="bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            className="bg-background border rounded-md px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">すべて</option>
             <option value="enabled">有効のみ</option>
@@ -411,7 +412,9 @@ export function ModelSettings() {
           >
             <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
           </button>
+        </div>
 
+        <div className="flex items-center justify-between gap-2">
           {/* 検索 */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -420,60 +423,59 @@ export function ModelSettings() {
               placeholder="モデルを検索..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-3 py-2 bg-background border border-border rounded-md text-sm text-foreground outline-none focus:ring-2 focus:ring-ring w-64"
+              className="pl-9 pr-3 py-2 bg-background border rounded-md text-sm text-foreground outline-none focus:ring-2 focus:ring-ring w-64"
             />
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {selectedModelIds.size > 0 && (
-            <div className="flex items-center gap-1 bg-brand-primary/10 px-2 py-1 rounded-lg border border-brand-primary/20">
-              <span className="text-xs font-bold text-brand-primary mr-2">
-                {selectedModelIds.size}件選択
-              </span>
-              <button
-                type="button"
-                onClick={() => handleBulkToggle(true)}
-                className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
-                title="一括有効化"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleBulkToggle(false)}
-                className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
-                title="一括無効化"
-              >
-                <EyeOff className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              // 新規作成
-              setEditingManualModel({
-                providerId: targetProviderId,
-                isEnabled: true,
-                enableStream: true,
-                supportsTools: true,
-                supportsImages: true,
-                protocol: 'chat_completion',
-              });
-              setManualModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 text-sm font-medium transition-all shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>手動追加</span>
-          </button>
+          <div className="flex justify-end gap-2">
+            {selectedModelIds.size > 0 && (
+              <div className="flex items-center gap-1 bg-brand-primary/10 px-2 py-1 rounded-lg border border-brand-primary/20">
+                <span className="text-xs font-bold text-brand-primary mr-2">
+                  {selectedModelIds.size}件選択
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleBulkToggle(true)}
+                  className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
+                  title="一括有効化"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkToggle(false)}
+                  className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
+                  title="一括無効化"
+                >
+                  <EyeOff className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                // 新規作成
+                setEditingManualModel({
+                  providerId: targetProviderId,
+                  isEnabled: true,
+                  enableStream: true,
+                  supportsTools: true,
+                  supportsImages: true,
+                  protocol: 'chat_completion',
+                });
+                setManualModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 text-sm font-medium transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>手動追加</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* モデルリスト */}
-      <div className="flex-1 overflow-y-auto border border-border rounded-md bg-muted/20 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto border rounded-md bg-muted/20 custom-scrollbar">
         <table className="w-full text-left border-collapse">
           <thead className="bg-white/5 sticky top-0 z-10 backdrop-blur-md">
             <tr>
@@ -515,7 +517,7 @@ export function ModelSettings() {
                   <button
                     type="button"
                     onClick={() => toggleSelection(model.id)}
-                    className={`transition-colors ${selectedModelIds.has(model.id) ? 'text-brand-primary' : 'text-text-secondary'}`}
+                    className={`transition-colors ${selectedModelIds.has(model.id) ? 'text-brand-primary' : 'text-secondary'}`}
                   >
                     {selectedModelIds.has(model.id) ? (
                       <CheckSquare className="w-4 h-4" />
@@ -570,7 +572,7 @@ export function ModelSettings() {
                     className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
                       model.isEnabled
                         ? 'bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20'
-                        : 'bg-muted text-muted-foreground border border-border hover:bg-accent'
+                        : 'bg-muted text-muted-foreground border hover:bg-accent'
                     }`}
                   >
                     {model.isEnabled ? '有効' : '無効'}
@@ -658,8 +660,8 @@ export function ModelSettings() {
       {isManualModalOpen &&
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="w-full max-w-lg bg-background border border-border rounded-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden">
-              <header className="flex items-center justify-between p-4 border-b border-border bg-muted/20">
+            <div className="w-full max-w-lg bg-background border rounded-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden">
+              <header className="flex items-center justify-between p-4 border-b bg-muted/20">
                 <h3 className="font-bold text-foreground flex items-center gap-2">
                   <Settings2 className="w-4 h-4 text-primary" />
                   {editingManualModel?.uuid &&
@@ -680,9 +682,7 @@ export function ModelSettings() {
               <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
                 {/* 基本設定セクション */}
                 <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b border-border pb-1 mb-2">
-                    基本設定
-                  </h4>
+                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">基本設定</h4>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -705,7 +705,7 @@ export function ModelSettings() {
                         }
                         disabled={!!editingManualModel?.uuid} // 編集時は変更不可推奨
                         id="manual-provider-id"
-                        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                       >
                         <option value="">選択してください</option>
                         {providers.map((p) => (
@@ -718,7 +718,7 @@ export function ModelSettings() {
                     <div>
                       <label
                         htmlFor="manual-name"
-                        className="block text-xs font-bold text-text-secondary mb-1.5"
+                        className="block text-xs font-bold text-secondary mb-1.5"
                       >
                         表示名 (Alias)
                       </label>
@@ -729,7 +729,7 @@ export function ModelSettings() {
                         onChange={(e) =>
                           setEditingManualModel((prev) => ({ ...prev, name: e.target.value }))
                         }
-                        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                         placeholder="e.g. My Custom GPT"
                       />
                     </div>
@@ -738,7 +738,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-model-id"
-                      className="block text-xs font-bold text-text-secondary mb-1.5"
+                      className="block text-xs font-bold text-secondary mb-1.5"
                     >
                       モデルID (API識別子)
                     </label>
@@ -754,7 +754,7 @@ export function ModelSettings() {
                         editingManualModel?.uuid !== undefined &&
                         editingManualModel.uuid === editingManualModel?.modelId
                       }
-                      className={`w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono ${
+                      className={`w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono ${
                         editingManualModel?.uuid !== undefined &&
                         editingManualModel.uuid === editingManualModel?.modelId
                           ? 'opacity-50 cursor-not-allowed'
@@ -773,12 +773,10 @@ export function ModelSettings() {
 
                 {/* 機能設定セクション */}
                 <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b border-border pb-1 mb-2">
-                    機能設定
-                  </h4>
+                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">機能設定</h4>
 
                   <div className="flex flex-wrap gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border border-border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
                       <input
                         type="checkbox"
                         checked={editingManualModel?.enableStream ?? true}
@@ -792,7 +790,7 @@ export function ModelSettings() {
                       />
                       <span className="text-xs font-medium">ストリーミング有効</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border border-border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
                       <input
                         type="checkbox"
                         checked={editingManualModel?.supportsTools ?? true}
@@ -806,7 +804,7 @@ export function ModelSettings() {
                       />
                       <span className="text-xs font-medium">ツール利用 (Function Calling)</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border border-border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
                       <input
                         type="checkbox"
                         checked={editingManualModel?.supportsImages ?? true}
@@ -831,7 +829,7 @@ export function ModelSettings() {
 
                     if (provider?.supportsResponseApi) {
                       return (
-                        <div className="mt-4 p-3 border border-border rounded-md bg-muted/10">
+                        <div className="mt-4 p-3 border rounded-md bg-muted/10">
                           <p className="block text-xs font-bold text-foreground mb-2">
                             利用プロトコル
                           </p>
@@ -882,7 +880,7 @@ export function ModelSettings() {
 
                 {/* 詳細パラメータセクション */}
                 <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b border-border pb-1 mb-2">
+                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">
                     詳細パラメータ
                   </h4>
 
@@ -890,7 +888,7 @@ export function ModelSettings() {
                     <div>
                       <label
                         htmlFor="manual-context-window"
-                        className="block text-xs font-bold text-text-secondary mb-1.5"
+                        className="block text-xs font-bold text-secondary mb-1.5"
                       >
                         Context Window
                       </label>
@@ -904,14 +902,14 @@ export function ModelSettings() {
                             contextWindow: Number(e.target.value),
                           }))
                         }
-                        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                         placeholder="自動 (0)"
                       />
                     </div>
                     <div>
                       <label
                         htmlFor="manual-max-tokens"
-                        className="block text-xs font-bold text-text-secondary mb-1.5"
+                        className="block text-xs font-bold text-secondary mb-1.5"
                       >
                         Max Output Tokens
                       </label>
@@ -925,7 +923,7 @@ export function ModelSettings() {
                             maxTokens: Number(e.target.value),
                           }))
                         }
-                        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                         placeholder="自動 (0)"
                       />
                     </div>
@@ -934,7 +932,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-system-prompt"
-                      className="block text-xs font-bold text-text-secondary mb-1.5"
+                      className="block text-xs font-bold text-secondary mb-1.5"
                     >
                       Default System Prompt
                     </label>
@@ -947,7 +945,7 @@ export function ModelSettings() {
                           defaultSystemPrompt: e.target.value,
                         }))
                       }
-                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
+                      className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
                       placeholder="このモデルのデフォルトシステムプロンプトを設定します..."
                     />
                   </div>
@@ -955,7 +953,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-extra-params"
-                      className="block text-xs font-bold text-text-secondary mb-1.5"
+                      className="block text-xs font-bold text-secondary mb-1.5"
                     >
                       Extra Params (JSON)
                     </label>
@@ -973,7 +971,7 @@ export function ModelSettings() {
                           extraParams: val as unknown as Record<string, unknown>,
                         }));
                       }}
-                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono min-h-[100px] text-xs"
+                      className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono min-h-[100px] text-xs"
                       placeholder={'{\n  "top_p": 0.9,\n  "presence_penalty": 0.5\n}'}
                     />
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -982,7 +980,7 @@ export function ModelSettings() {
                   </div>
                 </div>
               </div>
-              <div className="p-4 border-t border-border flex justify-end gap-3 bg-muted/30 shrink-0">
+              <div className="p-4 border-t flex justify-end gap-3 bg-muted/30 shrink-0">
                 <button
                   type="button"
                   onClick={() => setManualModalOpen(false)}

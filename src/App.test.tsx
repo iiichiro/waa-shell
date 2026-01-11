@@ -118,6 +118,54 @@ vi.mock('./components/chat/MarkdownRenderer', () => ({ MarkdownRenderer: () => n
 vi.mock('./components/command/SlashCommandSuggest', () => ({ SlashCommandSuggest: () => null }));
 vi.mock('./components/command/SlashCommandForm', () => ({ SlashCommandForm: () => null }));
 
+vi.mock('./lib/services/ChatService', () => ({
+  createThread: vi.fn().mockResolvedValue(1),
+  deleteMessageAndDescendants: vi.fn(),
+  generateTitle: vi.fn(),
+  sendMessage: vi.fn().mockResolvedValue({ id: 1 }), // Return dummy message
+  switchBranch: vi.fn(),
+  updateMessageContent: vi.fn(),
+}));
+
+vi.mock('./lib/services/ModelService', () => ({
+  listModels: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('./lib/db', () => ({
+  db: {
+    providers: {
+      toArray: vi.fn().mockResolvedValue([]),
+      toCollection: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      update: vi.fn(),
+      get: vi.fn(),
+    },
+    threads: {
+      get: vi.fn(),
+      add: vi.fn().mockResolvedValue(1),
+      update: vi.fn(),
+    },
+    messages: {
+      get: vi.fn(),
+      update: vi.fn(),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+      add: vi.fn(),
+    },
+    threadSettings: {
+      add: vi.fn(),
+    },
+    transaction: vi.fn((_mode, _tables, callback) => callback()),
+  },
+}));
+
+vi.mock('./lib/db/threads', () => ({
+  getActivePathMessages: vi.fn().mockResolvedValue([]),
+  getMessageBranchInfo: vi.fn().mockResolvedValue([]),
+}));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
@@ -205,7 +253,7 @@ describe('Navigation Flow Integration', () => {
       // 通常、これらは排他制御されるべき。
       // useAppStoreの実装を確認できないが、もし排他制御されていないなら、
       // ここで「ファイル管理」が消えている保証はない。
-      
+
       // しかし、ユーザー体験としては排他制御が望ましい。
       // ここでは「設定画面が表示されていること」を主に確認する。
     });

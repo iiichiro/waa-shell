@@ -12,15 +12,16 @@ import {
 import { useState } from 'react';
 import type { Thread } from '../../lib/db';
 import { listThreads } from '../../lib/db/threads';
-import { createThread, deleteMultipleThreads, deleteThread } from '../../lib/services/ChatService';
+import { deleteMultipleThreads, deleteThread } from '../../lib/services/ChatService';
 import { useAppStore } from '../../store/useAppStore';
 
 interface SidebarProps {
   className?: string;
   onClose?: () => void;
+  onNewChat?: () => void;
 }
 
-export function Sidebar({ className = '', onClose }: SidebarProps) {
+export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
   const queryClient = useQueryClient();
   const {
     activeThreadId,
@@ -61,19 +62,6 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
       setActiveThreadId(null);
       setIsSelectionMode(false);
       setSelectedThreadIds(new Set());
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => createThread('新しいチャット'),
-    onSuccess: (id) => {
-      queryClient.invalidateQueries({ queryKey: ['threads'] });
-      setActiveThreadId(id);
-      setIsSelectionMode(false);
-      // モバイルの場合のみ閉じる
-      if (window.innerWidth < 768) {
-        onClose?.();
-      }
     },
   });
 
@@ -124,15 +112,22 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
     }
   };
 
+  const handleNewChat = () => {
+    onNewChat?.();
+    if (window.innerWidth < 768) {
+      onClose?.();
+    }
+  };
+
   return (
     <aside
-      className={`w-64 h-full bg-sidebar text-sidebar-foreground border-r border-border flex flex-col shrink-0 ${className}`}
+      className={`w-64 h-full bg-sidebar text-sidebar-foreground border-r flex flex-col shrink-0 ${className}`}
     >
       <div className="p-4 space-y-2">
         <div className="p-4 space-y-2">
           <button
             type="button"
-            onClick={() => createMutation.mutate()}
+            onClick={handleNewChat}
             className="w-full py-2 px-3 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md flex items-center justify-center gap-2 transition-all shadow-sm text-sm font-medium"
             data-testid="new-chat-button"
           >
@@ -168,7 +163,7 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
             <button
               type="button"
               onClick={handleSelectAll}
-              className="hover:text-text-primary flex items-center gap-1.5"
+              className="hover:text-primary flex items-center gap-1.5"
             >
               {selectedThreadIds.size === threads.length ? (
                 <>
@@ -210,9 +205,7 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
                     <span className="text-[10px] font-bold">✓</span>
                   )}
                 </div>
-                <span className="truncate text-sm text-text-secondary select-none">
-                  {thread.title}
-                </span>
+                <span className="truncate text-sm text-secondary select-none">{thread.title}</span>
               </button>
             ) : (
               <>
@@ -249,7 +242,7 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
                       deleteMutation.mutate(thread.id);
                     }
                   }}
-                  className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded-md text-text-secondary hover:text-red-400 transition-all"
+                  className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded-md text-secondary hover:text-red-400 transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -261,7 +254,7 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
 
       {/* 選択モード時のアクションバー */}
       {isSelectionMode && (
-        <div className="p-4 border-t border-border bg-destructive/10 fade-in-up">
+        <div className="p-4 border-t bg-destructive/10 fade-in-up">
           <button
             type="button"
             onClick={handleDeleteSelected}
@@ -276,7 +269,7 @@ export function Sidebar({ className = '', onClose }: SidebarProps) {
 
       {/* 通常時のフッターメニュー */}
       {!isSelectionMode && (
-        <div className="p-4 mt-auto border-t border-border space-y-1">
+        <div className="p-4 mt-auto border-t space-y-1">
           <button
             type="button"
             onClick={() => {

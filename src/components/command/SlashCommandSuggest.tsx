@@ -59,8 +59,8 @@ export function SlashCommandSuggest({ query, onSelect, onClose }: Props) {
   }
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-72 bg-sidebar border border-border rounded-xl shadow-2xl overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2">
-      <div className="px-3 py-2 text-[10px] font-bold text-text-secondary uppercase tracking-widest border-b border-white/5">
+    <div className="absolute bottom-full left-0 mb-2 w-72 bg-sidebar border rounded-xl shadow-2xl overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2">
+      <div className="px-3 py-2 text-[10px] font-bold text-secondary uppercase tracking-widest border-b border-white/5">
         コマンド
       </div>
       <div className="max-h-64 overflow-y-auto p-1 text-left">
@@ -73,11 +73,11 @@ export function SlashCommandSuggest({ query, onSelect, onClose }: Props) {
             className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-colors ${
               index === selectedIndex
                 ? 'bg-brand-primary/20 text-brand-primary'
-                : 'hover:bg-white/5 text-text-secondary'
+                : 'hover:bg-white/5 text-secondary'
             }`}
           >
             <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-medium text-text-primary">
+              <span className="text-sm font-medium text-primary">
                 /{cmd.key} ({cmd.label})
               </span>
               <span className="text-[10px] opacity-70 truncate">{cmd.description}</span>

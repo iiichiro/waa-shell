@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Menu, Plus, Settings } from 'lucide-react';
+import { Menu, Plus, Settings, Settings2 } from 'lucide-react';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { ChangeEvent, ClipboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -13,11 +13,12 @@ import { SlashCommandSuggest } from './components/command/SlashCommandSuggest';
 import { FileExplorer } from './components/common/FileExplorer';
 import { Sidebar } from './components/layout/Sidebar';
 import { SettingsView } from './components/settings/SettingsView';
-import { db, type Message, type SlashCommand, type Thread } from './lib/db';
+import { db, type Message, type SlashCommand, type Thread, type ThreadSettings } from './lib/db';
 import { getActivePathMessages, getMessageBranchInfo } from './lib/db/threads';
 import {
   createThread,
   deleteMessageAndDescendants,
+  generateTitle,
   sendMessage,
   switchBranch,
   updateMessageContent,
@@ -44,6 +45,9 @@ export default function App() {
     sendShortcut,
     setActiveThreadId,
     toggleSidebar,
+    autoGenerateTitle,
+    titleGenerationProvider,
+    titleGenerationModel,
   } = useAppStore();
 
   // const [activeThread, setActiveThread] = useState<Thread | null>(null); // useQueryで取得するため削除
@@ -56,6 +60,10 @@ export default function App() {
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // モデル選択状態の管理
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+
+  // ドラフト設定（新規チャット作成前に設定された値）
+  const [draftThreadSettings, setDraftThreadSettings] = useState<Partial<ThreadSettings>>({});
+
   const [showSuggest, setShowSuggest] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const [selectedCommand, setSelectedCommand] = useState<SlashCommand | null>(null);
@@ -307,12 +315,27 @@ export default function App() {
       isRegenerate?: boolean;
     }) => {
       let threadId = activeThreadId;
+      let isNewThread = false;
+
       if (!threadId) {
         threadId = await createThread(text.slice(0, 20) || '新しいチャット');
+        isNewThread = true;
         // IDをセット
         setActiveThreadId(threadId);
         // IDが確実に入れ替わった状態でクエリを叩くため、ここで一度invalidate
         await queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
+      }
+
+      // 新規スレッドかつドラフト設定がある場合、設定を保存
+      if (isNewThread && Object.keys(draftThreadSettings).length > 0) {
+        await db.threadSettings.add({
+          ...draftThreadSettings,
+          threadId,
+          // modelIdがドラフトにない場合は現在の選択モデルを使用
+          modelId: draftThreadSettings.modelId || selectedModelId || models[0]?.id || '',
+        } as ThreadSettings);
+        // ドラフトをクリア
+        setDraftThreadSettings({});
       }
 
       // このスレッド用のコントローラーがあればアボート
@@ -350,6 +373,14 @@ export default function App() {
         // ストリーミング完了後の最終的なメッセージ状態を反映
         queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
         queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
+
+        // タイトル自動生成 (バックグラウンド実行)
+        if (isNewThread && autoGenerateTitle && titleGenerationProvider && titleGenerationModel) {
+          generateTitle(threadId, titleGenerationProvider, titleGenerationModel).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
+            queryClient.invalidateQueries({ queryKey: ['threads'] });
+          });
+        }
 
         return threadId;
       } finally {
@@ -612,6 +643,16 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['thread', activeThreadId] });
   };
 
+  const handleNewChat = () => {
+    setActiveThreadId(null);
+    setInputText('');
+    setDraftThreadSettings({}); // ドラフト設定もリセット
+  };
+
+  const handleDraftSave = (settings: Partial<ThreadSettings>) => {
+    setDraftThreadSettings(settings);
+  };
+
   const placeholderText =
     sendShortcut === 'enter'
       ? 'メッセージを入力... (Enterで送信)'
@@ -619,7 +660,7 @@ export default function App() {
 
   return (
     <div
-      className={`flex h-screen w-screen overflow-hidden bg-background text-foreground relative font-sans ${isLauncher ? 'rounded-xl border border-border shadow-2xl' : ''}`}
+      className={`flex h-screen w-screen overflow-hidden bg-background text-foreground relative font-sans ${isLauncher ? 'rounded-xl border shadow-2xl' : ''}`}
     >
       {/* モバイルサイドバーオーバーレイ */}
       {isSidebarOpen && (
@@ -637,13 +678,13 @@ export default function App() {
             isSidebarOpen ? 'translate-x-0 w-64 opacity-100' : '-translate-x-full w-0 opacity-0'
           }`}
         >
-          <Sidebar className="h-full" onClose={toggleSidebar} />
+          <Sidebar className="h-full" onClose={toggleSidebar} onNewChat={handleNewChat} />
         </div>
       )}
 
       <main className="flex-1 flex flex-col relative h-full w-full min-w-0 overflow-hidden">
         <header
-          className={`${isLauncher ? 'h-11 px-3' : 'h-14 px-6'} border-b border-border flex items-center justify-between bg-background/80 backdrop-blur-xl z-20 sticky top-0 ${isLauncher ? 'cursor-move select-none' : ''}`}
+          className={`${isLauncher ? 'h-11 px-3' : 'h-14 px-6'} border-b flex items-center justify-between bg-background/80 backdrop-blur-xl z-20 sticky top-0 ${isLauncher ? 'cursor-move select-none' : ''}`}
           data-tauri-drag-region={isLauncher ? 'true' : undefined}
         >
           {/* Header Content (Remaining same for now) */}
@@ -666,7 +707,7 @@ export default function App() {
                   onChange={(e) => setTitleInput(e.target.value)}
                   onBlur={handleTitleUpdate}
                   onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate()}
-                  className="flex-1 bg-muted border border-border rounded-lg px-3 py-1.5 text-sm font-semibold text-foreground outline-none focus:ring-2 focus:ring-ring min-w-0"
+                  className="flex-1 bg-muted border rounded-lg px-3 py-1.5 text-sm font-semibold text-foreground outline-none focus:ring-2 focus:ring-ring min-w-0"
                   // biome-ignore lint/a11y/noAutofocus: UX improvement
                   autoFocus
                 />
@@ -686,34 +727,26 @@ export default function App() {
             <div className="h-4 w-[1px] bg-border shrink-0 hidden md:block" />
             <div className="flex items-center gap-2 shrink-0 ml-auto md:ml-0">
               <div className="flex items-center gap-1">
-                {(isLauncher || !isLauncher) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveThreadId(null);
-                      setInputText('');
-                    }}
-                    className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-all"
-                    title="新規チャット"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                )}
-                {activeThreadId && (
-                  <button
-                    type="button"
-                    onClick={() => setThreadSettingsOpen(true)}
-                    className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-all"
-                    title="スレッド設定"
-                  >
-                    <Settings className="w-5 h-5" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-all"
+                  title="新規チャット"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  className="text-xs font-bold text-primary hover:underline px-2"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
               </div>
 
               <div className="flex items-center gap-2">
                 {/* Provider Selector */}
-                {providers.length > 0 ? (
+                {providers.length > 0 && (
                   <div className="relative group">
                     <select
                       value={activeProvider?.id || ''}
@@ -753,14 +786,6 @@ export default function App() {
                       </svg>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setSettingsOpen(true)}
-                    className="text-xs font-bold text-primary hover:underline px-2"
-                  >
-                    設定
-                  </button>
                 )}
 
                 {/* Model Selector */}
@@ -832,18 +857,35 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setThreadSettingsOpen(true)}
+                  className={`p-2 hover:bg-muted rounded-lg transition-all ${
+                    Object.keys(draftThreadSettings).length > 0 && !activeThreadId
+                      ? 'text-primary bg-primary/10'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title={
+                    !activeThreadId && Object.keys(draftThreadSettings).length > 0
+                      ? '新規チャット設定 (設定済み)'
+                      : 'スレッド設定'
+                  }
+                >
+                  <Settings2 className="w-5 h-5" />
+                </button>
               </div>
             </div>
           </div>
         </header>
 
-        {activeThreadId && (
-          <ThreadSettingsModal
-            isOpen={isThreadSettingsOpen}
-            onClose={() => setThreadSettingsOpen(false)}
-            threadId={activeThreadId}
-          />
-        )}
+        <ThreadSettingsModal
+          isOpen={isThreadSettingsOpen}
+          onClose={() => setThreadSettingsOpen(false)}
+          threadId={activeThreadId || undefined}
+          initialSettings={!activeThreadId ? draftThreadSettings : undefined}
+          onSave={!activeThreadId ? handleDraftSave : undefined}
+        />
 
         <div
           key={activeThreadId || 'new-thread'}
@@ -932,7 +974,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleStop}
-                    className="flex items-center gap-2 bg-background border border-border shadow-lg px-4 py-2 rounded-full text-sm font-medium hover:bg-muted transition-colors animate-in fade-in slide-in-from-bottom-2"
+                    className="flex items-center gap-2 bg-background border shadow-lg px-4 py-2 rounded-full text-sm font-medium hover:bg-muted transition-colors animate-in fade-in slide-in-from-bottom-2"
                   >
                     <div className="w-2.5 h-2.5 bg-red-500 rounded-[2px]" />
                     生成を停止

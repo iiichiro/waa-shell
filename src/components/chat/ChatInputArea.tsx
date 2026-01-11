@@ -80,7 +80,7 @@ export function ChatInputArea({
 
   return (
     <div
-      className={`flex items-end gap-1.5 w-full glass glass-strong rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-all shadow-sm border border-border bg-background/50 ${selectedFiles.length > 0 ? 'rounded-t-none border-t-0' : ''}`}
+      className={`flex items-end gap-1.5 w-full glass glass-strong rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-all shadow-sm border bg-background/50 ${selectedFiles.length > 0 ? 'rounded-t-none border-t-0' : ''}`}
     >
       <input
         type="file"
@@ -96,7 +96,7 @@ export function ChatInputArea({
           <div className="flex gap-2 p-2 overflow-x-auto custom-scrollbar">
             {selectedFiles.map((file, index) => (
               <div key={`${file.name}-${index}`} className="relative group shrink-0">
-                <div className="w-16 h-16 rounded-lg bg-muted border border-border flex items-center justify-center overflow-hidden">
+                <div className="w-16 h-16 rounded-lg bg-muted border flex items-center justify-center overflow-hidden">
                   {file.type.startsWith('image/') ? (
                     <img
                       src={URL.createObjectURL(file)}

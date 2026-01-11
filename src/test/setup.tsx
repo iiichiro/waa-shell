@@ -38,6 +38,7 @@ vi.mock('@tauri-apps/plugin-window', () => ({
 vi.mock('lucide-react', () => ({
   Plus: () => React.createElement('span', null, 'Plus'),
   Settings: () => React.createElement('span', null, 'Settings'),
+  Settings2: () => React.createElement('span', null, 'Settings2'),
   FileCode: () => React.createElement('span', null, 'FileCode'),
   X: () => React.createElement('span', null, 'X'),
   Trash2: () => React.createElement('span', null, 'Trash2'),

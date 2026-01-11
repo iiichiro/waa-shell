@@ -89,7 +89,7 @@ export function McpServerSettings() {
               className={`p-4 rounded-md border transition-all flex items-center justify-between group ${
                 s.isActive
                   ? 'bg-primary/5 border-primary/30'
-                  : 'bg-muted/30 border-border hover:border-primary/20'
+                  : 'bg-muted/30 hover:border-primary/20'
               }`}
             >
               <div className="flex items-center gap-4">
@@ -137,7 +137,7 @@ export function McpServerSettings() {
             </div>
           ))}
           {servers.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground text-sm bg-muted/20 rounded-md border border-border border-dashed">
+            <div className="text-center py-8 text-muted-foreground text-sm bg-muted/20 rounded-md border border-dashed">
               設定されている MCP サーバーはありません
             </div>
           )}
@@ -158,7 +158,7 @@ export function McpServerSettings() {
               </label>
               <input
                 id="s-name"
-                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="My Server"
                 value={editingServer.name}
                 onChange={(e) => setEditingServer({ ...editingServer, name: e.target.value })}
@@ -196,7 +196,7 @@ export function McpServerSettings() {
             </label>
             <select
               id="s-type"
-              className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               value={editingServer.type}
               onChange={(e) =>
                 setEditingServer({ ...editingServer, type: e.target.value as 'sse' | 'stdio' })
@@ -214,7 +214,7 @@ export function McpServerSettings() {
               </label>
               <input
                 id="s-url"
-                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="http://localhost:8000/sse"
                 value={editingServer.url || ''}
                 onChange={(e) => setEditingServer({ ...editingServer, url: e.target.value })}

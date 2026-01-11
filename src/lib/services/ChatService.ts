@@ -634,3 +634,73 @@ export async function deleteMessageAndDescendants(threadId: number, messageId: n
 export async function updateMessageContent(messageId: number, content: string) {
   await db.messages.update(messageId, { content });
 }
+
+/**
+ * チャットのタイトルを自動生成する
+ */
+export async function generateTitle(
+  threadId: number,
+  providerId: string,
+  modelId: string,
+): Promise<void> {
+  // 1. メッセージ履歴の取得（最初のユーザーメッセージとアシスタントメッセージ）
+  const messages = await getActivePathMessages(threadId);
+  // systemプロンプトを除外して、ユーザーとアシスタントのやり取りだけ抽出
+  const conversation = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .slice(0, 2);
+
+  if (conversation.length === 0) return;
+
+  // 2. プロバイダー情報の取得
+  const provider = await db.providers.get(Number(providerId));
+  if (!provider) {
+    console.warn('Title generation failed: Provider not found');
+    return;
+  }
+
+  // 3. プロンプトの構築
+  const prompt: ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content:
+        'You are a helpful assistant that generates a short, concise title for a conversation. The title should be in the same language as the conversation (Japanese if the conversation is in Japanese). Return ONLY the title text, no quotes or extra words. Maximum 20 characters.',
+    },
+    ...conversation.map(
+      (m) =>
+        ({
+          role: m.role === 'user' ? 'user' : 'assistant', // role validation
+          content: m.content,
+        }) as ChatCompletionMessageParam,
+    ),
+    {
+      role: 'user',
+      content: 'Generate a title for this conversation.',
+    },
+  ];
+
+  try {
+    // 4. LLM呼び出し
+    const response = await chatCompletion({
+      model: modelId,
+      messages: prompt,
+      provider: provider,
+      stream: false,
+      max_tokens: 50,
+    });
+
+    if (response && 'choices' in response && response.choices.length > 0) {
+      let title = response.choices[0].message.content?.trim() || '';
+      // 引用符がついている場合は削除
+      title = title.replace(/^["'「]+|["'」]+$/g, '');
+
+      if (title) {
+        // 5. タイトル更新
+        await db.threads.update(threadId, { title });
+      }
+    }
+  } catch (error) {
+    console.error('Title generation failed:', error);
+    // 失敗時は何もしない（デフォルトのタイトルなどが維持される）
+  }
+}

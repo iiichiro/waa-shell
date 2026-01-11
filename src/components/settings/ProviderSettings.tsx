@@ -1,13 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Plus, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import type { Provider } from '../../lib/db';
+import type { Provider, ProviderType } from '../../lib/db';
 import {
   deleteProvider,
   listProviders,
   setActiveProvider,
   upsertProvider,
 } from '../../lib/services/ProviderService';
+
+const PROVIDER_TYPES: ProviderType[] = [
+  'openai-compatible',
+  // TODO: 処理切り替え未対応のためコメントアウト
+  // 'azure',
+  // 'anthropic',
+  // 'google',
+  'ollama',
+  'openrouter',
+  'litellm',
+];
 
 export function ProviderSettings() {
   const queryClient = useQueryClient();
@@ -133,7 +144,7 @@ export function ProviderSettings() {
               className={`p-3 md:p-4 rounded-md border transition-all flex items-center justify-between gap-4 group ${
                 p.isActive
                   ? 'bg-primary/5 border-primary/30'
-                  : 'bg-muted/30 border-border hover:border-primary/20'
+                  : 'bg-muted/30 hover:border-primary/20'
               }`}
             >
               <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
@@ -197,13 +208,34 @@ export function ProviderSettings() {
               </label>
               <input
                 id="p-name"
-                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="OpenAI, Local LLM など"
                 value={editingProvider.name}
                 onChange={(e) => setEditingProvider({ ...editingProvider, name: e.target.value })}
               />
             </div>
-            {/* 状態切り替えは上部のグローバル設定で行うため、フォームからは削除 */}
+            <div className="space-y-1.5">
+              <label htmlFor="p-type" className="text-xs font-semibold text-muted-foreground">
+                プロバイダータイプ
+              </label>
+              <select
+                id="p-type"
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={editingProvider.type}
+                onChange={(e) =>
+                  setEditingProvider({
+                    ...editingProvider,
+                    type: e.target.value as ProviderType,
+                  })
+                }
+              >
+                {PROVIDER_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -212,7 +244,7 @@ export function ProviderSettings() {
             </label>
             <input
               id="p-url"
-              className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="https://api.openai.com/v1"
               value={editingProvider.baseUrl}
               onChange={(e) => setEditingProvider({ ...editingProvider, baseUrl: e.target.value })}
@@ -234,7 +266,7 @@ export function ProviderSettings() {
                       requiresApiKey: e.target.checked,
                     })
                   }
-                  className="w-3 h-3 rounded border-border bg-background text-primary focus:ring-ring"
+                  className="w-3 h-3 rounded bg-background text-primary focus:ring-ring"
                 />
                 <span className="text-[10px] text-muted-foreground">必須とする</span>
               </label>
@@ -242,7 +274,7 @@ export function ProviderSettings() {
             <input
               id="p-key"
               type="password"
-              className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder={editingProvider.requiresApiKey ? '必須です' : 'sk- ... (空欄可)'}
               value={editingProvider.apiKey}
               onChange={(e) => setEditingProvider({ ...editingProvider, apiKey: e.target.value })}
@@ -253,7 +285,7 @@ export function ProviderSettings() {
             <input
               id="p-response-api"
               type="checkbox"
-              className="w-4 h-4 rounded border-border bg-background text-primary focus:ring-ring"
+              className="w-4 h-4 rounded bg-background text-primary focus:ring-ring"
               checked={editingProvider.supportsResponseApi ?? false}
               onChange={(e) =>
                 setEditingProvider({

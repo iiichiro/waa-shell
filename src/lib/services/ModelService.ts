@@ -278,7 +278,7 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
       order: config?.order ?? startOrder + index,
       isCustom: false,
       isManual: false,
-      supportsTools: config?.supportsTools ?? true,
+      supportsTools: config?.supportsTools ?? false,
       supportsImages: config?.supportsImages ?? true,
       protocol: config?.protocol || 'chat_completion',
     });
@@ -321,7 +321,7 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
       isCustom: false,
       isManual: true, // オーバーライドでも編集可能なManual扱いとする
       isApiOverride: isOverride,
-      supportsTools: config?.supportsTools ?? m.supportsTools ?? true,
+      supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
       supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
       protocol: config?.protocol || m.protocol || 'chat_completion',
     });

@@ -60,7 +60,7 @@ export function ChatMessage({
       <div
         className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-sm transition-colors ${
           message.role === 'user'
-            ? 'bg-sidebar border border-border'
+            ? 'bg-sidebar border'
             : isError
               ? 'bg-red-500/20 border border-red-500/30 text-red-600 dark:text-red-400'
               : 'bg-primary/20 text-primary'
@@ -90,7 +90,7 @@ export function ChatMessage({
 
           {/* ブランチセレクター */}
           {branchInfo && branchInfo.total > 1 && (
-            <div className="flex items-center gap-1 bg-muted border border-border rounded-md px-1 py-0.5 ml-1">
+            <div className="flex items-center gap-1 bg-muted border rounded-md px-1 py-0.5 ml-1">
               <button
                 type="button"
                 onClick={() => branchInfo.onSwitch(branchInfo.current - 1)}
@@ -135,7 +135,7 @@ export function ChatMessage({
                 <button
                   type="button"
                   onClick={() => handleEditSave('save')}
-                  className="px-3 py-1.5 text-xs border border-border text-foreground rounded-lg hover:bg-muted transition-all font-medium"
+                  className="px-3 py-1.5 text-xs border text-foreground rounded-lg hover:bg-muted transition-all font-medium"
                 >
                   保存
                 </button>
@@ -161,7 +161,7 @@ export function ChatMessage({
                 message.role === 'assistant'
                   ? isError
                     ? 'bg-red-500/10 p-3 rounded-xl rounded-tl-none border border-red-500/20 shadow-sm w-full text-red-600 dark:text-red-200'
-                    : 'bg-muted p-3 rounded-xl rounded-tl-none border border-border shadow-sm w-full'
+                    : 'bg-muted p-3 rounded-xl rounded-tl-none border shadow-sm w-full'
                   : 'bg-primary/10 p-2 px-3 rounded-xl rounded-tl-none text-sm border border-primary/10 inline-block'
               } ${message.role === 'user' && typeof message.content === 'string' ? 'whitespace-pre-wrap' : ''}`}
             >

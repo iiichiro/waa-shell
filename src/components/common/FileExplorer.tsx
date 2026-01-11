@@ -51,7 +51,7 @@ export function FileExplorer() {
             placeholder="ファイルを検索..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-sm bg-muted/50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground"
+            className="w-full pl-9 pr-3 py-1.5 text-sm bg-muted/50 border rounded-md focus:outline-none focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground"
           />
         </div>
         <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md border border-border">
@@ -83,9 +83,7 @@ export function FileExplorer() {
       </CommonHeader>
 
       {/* ツールバー */}
-      <div
-        className={`${isLauncher ? 'p-2' : 'p-4'} border-b border-border bg-muted/20 flex items-center gap-4`}
-      >
+      <div className={`${isLauncher ? 'p-2' : 'p-4'} border-b bg-muted/20 flex items-center gap-4`}>
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
@@ -93,7 +91,7 @@ export function FileExplorer() {
             placeholder="ファイルを検索..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full bg-background border border-border pl-9 pr-4 rounded-md outline-none focus:ring-2 focus:ring-ring transition-all ${isLauncher ? 'py-1.5 text-xs' : 'py-2 text-sm'}`}
+            className={`w-full bg-background border pl-9 pr-4 rounded-md outline-none focus:ring-2 focus:ring-ring transition-all ${isLauncher ? 'py-1.5 text-xs' : 'py-2 text-sm'}`}
           />
         </div>
         {!isLauncher && (
@@ -162,7 +160,7 @@ function FileCard({
   const imageUrl = file.mimeType.startsWith('image/') ? URL.createObjectURL(file.blob) : null;
 
   return (
-    <div className="group relative bg-muted/30 border border-border rounded-lg overflow-hidden hover:border-primary/30 transition-all shadow-sm">
+    <div className="group relative bg-muted/30 border rounded-lg overflow-hidden hover:border-primary/30 transition-all shadow-sm">
       <div className="aspect-square bg-muted relative flex items-center justify-center overflow-hidden">
         {imageUrl ? (
           <img

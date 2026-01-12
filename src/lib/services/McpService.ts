@@ -1,37 +1,144 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { db } from '../db';
+import { db, type McpServer } from '../db';
 import { getAccessToken } from './AuthService';
 
 // サーバIDごとのクライアントインスタンスを保持
 const clients = new Map<number, Client>();
+// サーバIDごとの接続ステータスを保持
+const serverStatuses = new Map<number, 'success' | 'error' | 'none'>();
+
+/**
+ * サーバの現在の接続状態を確認する
+ */
+export async function getServerStatus(serverId: number): Promise<'success' | 'error' | 'none'> {
+  const server = await db.mcpServers.get(serverId);
+  if (!server || !server.isActive) {
+    serverStatuses.delete(serverId);
+    return 'none';
+  }
+
+  try {
+    const client = await ensureConnected(serverId);
+    await client.listTools();
+    serverStatuses.set(serverId, 'success');
+    return 'success';
+  } catch (e) {
+    console.error(`Failed to get status for server ${serverId}:`, e);
+    serverStatuses.set(serverId, 'error');
+    return 'error';
+  }
+}
+
+/**
+ * 現在保持しているすべてのサーバの接続ステータスを取得する
+ */
+export function getAllServerStatuses(): Record<number, 'success' | 'error' | 'none'> {
+  const statuses: Record<number, 'success' | 'error' | 'none'> = {};
+  for (const [id, status] of serverStatuses) {
+    statuses[id] = status;
+  }
+  return statuses;
+}
+
+/**
+ * サーバの接続テストを行う（DB保存済みのデータを使用）
+ */
+export async function pingServer(serverId: number): Promise<void> {
+  const server = await db.mcpServers.get(serverId);
+  if (!server) throw new Error(`Server ID ${serverId} not found.`);
+  await testMcpConfig(server);
+}
+
+/**
+ * 任意の設定で MCP サーバの接続テストを行う
+ */
+export async function testMcpConfig(
+  config: Omit<McpServer, 'createdAt' | 'updatedAt'>,
+): Promise<void> {
+  if (!config.url) throw new Error('URL is required.');
+
+  // テスト用の一時的なトランスポート作成
+  const headers: Record<string, string> = {};
+  // OIDC の場合は ID が必要（Service内の getAccessToken が ID 依存のため）
+  // もし新規作成中（IDなし）で OIDC の場合は、ここでは簡易的にエラーにするか、
+  // あるいは ID がある場合のみトークンを取得する
+  if (config.authType === 'oidc' && 'id' in config && config.id) {
+    const token = await getAccessToken(config.id as number);
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  let transport = null;
+  if (config.type === undefined || config.type === 'streamableHttp') {
+    transport = new StreamableHTTPClientTransport(new URL(config.url), {
+      requestInit: { headers },
+    });
+  } else if (config.type === 'sse') {
+    transport = new SSEClientTransport(new URL(config.url), {
+      requestInit: { headers },
+    });
+  } else {
+    throw new Error(`Unsupported server type: ${config.type}`);
+  }
+
+  const client = new Client(
+    { name: 'waa-shell-test-client', version: '1.0.0' },
+    { capabilities: {} },
+  );
+
+  try {
+    await client.connect(transport);
+    await client.listTools();
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // ignore
+    }
+  }
+}
 
 /**
  * 有効な全 MCP サーバからツールを取得する
  */
 export async function getAllMcpTools(): Promise<Tool[]> {
-  const servers = await db.mcpServers.where('isActive').equals(1).toArray();
+  const allServers = await db.mcpServers.toArray();
+  const servers = allServers.filter((s) => s.isActive);
   const allTools: Tool[] = [];
 
   for (const server of servers) {
     if (!server.id) continue;
     try {
-      const client = await ensureConnected(server.id);
-      const { tools } = await client.listTools();
-
-      // ツール名にサーバ名を付加して衝突を避ける
-      const prefixedTools = tools.map((t) => ({
-        ...t,
-        name: `${server.name}__${t.name}`,
-      }));
-      allTools.push(...prefixedTools);
+      const tools = await getMcpToolsByServerId(server.id);
+      allTools.push(...tools);
     } catch (e) {
       console.error(`Failed to get tools from MCP server ${server.name}:`, e);
     }
   }
 
   return allTools;
+}
+
+/**
+ * 指定したサーバ ID の MCP サーバからツールを取得する
+ * ツール名にはサーバ名のプレフィックスが付与される
+ */
+export async function getMcpToolsByServerId(serverId: number): Promise<Tool[]> {
+  const server = await db.mcpServers.get(serverId);
+  if (!server) throw new Error(`Server ID ${serverId} not found.`);
+
+  if (!server.id) throw new Error(`Server ID for ${server.name} is missing.`);
+
+  const client = await ensureConnected(server.id);
+  const { tools } = await client.listTools();
+
+  // ツール名にサーバ名を付加して衝突を避ける
+  return tools.map((t) => ({
+    ...t,
+    name: `${server.name}__${t.name}`,
+  }));
 }
 
 /**
@@ -78,10 +185,20 @@ async function ensureConnected(serverId: number): Promise<Client> {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  // トランスポートの作成 (Streamable HTTP)
-  const transport = new StreamableHTTPClientTransport(new URL(server.url), {
-    requestInit: { headers },
-  });
+  // トランスポートの作成
+  let transport = null;
+  if (server.type === undefined || server.type === 'streamableHttp') {
+    transport = new StreamableHTTPClientTransport(new URL(server.url), {
+      requestInit: { headers },
+    });
+  } else if (server.type === 'sse') {
+    // TODO: 後方互換性のために、SSEをサポート
+    transport = new SSEClientTransport(new URL(server.url), {
+      requestInit: { headers },
+    });
+  } else {
+    throw new Error(`Unsupported server type: ${server.type}`);
+  }
 
   const client = new Client(
     {
@@ -93,17 +210,24 @@ async function ensureConnected(serverId: number): Promise<Client> {
     },
   );
 
-  await client.connect(transport);
-  clients.set(serverId, client);
+  try {
+    await client.connect(transport);
+    clients.set(serverId, client);
+    serverStatuses.set(serverId, 'success');
 
-  return client;
+    return client;
+  } catch (e) {
+    serverStatuses.set(serverId, 'error');
+    throw e;
+  }
 }
 
 /**
- * サーバー接続を切断し、キャッシュから削除する
+ * サーバ接続を切断し、キャッシュから削除する
  * 設定変更時などに使用
  */
 export async function disconnectServer(serverId: number) {
+  serverStatuses.delete(serverId);
   const client = clients.get(serverId);
   if (client) {
     try {

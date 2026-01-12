@@ -197,15 +197,17 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
                 <div
                   className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
                     thread.id && selectedThreadIds.has(thread.id)
-                      ? 'bg-brand-primary border-brand-primary text-white'
-                      : 'border-white/20 bg-transparent'
+                      ? 'bg-primary border-primary text-primary-foreground'
+                      : 'border-foreground/20 bg-transparent'
                   }`}
                 >
                   {thread.id && selectedThreadIds.has(thread.id) && (
                     <span className="text-[10px] font-bold">✓</span>
                   )}
                 </div>
-                <span className="truncate text-sm text-secondary select-none">{thread.title}</span>
+                <span className="truncate text-sm text-foreground/80 select-none">
+                  {thread.title}
+                </span>
               </button>
             ) : (
               <>
@@ -242,7 +244,7 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
                       deleteMutation.mutate(thread.id);
                     }
                   }}
-                  className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded-md text-secondary hover:text-red-400 transition-all"
+                  className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-foreground/10 rounded-md text-muted-foreground hover:text-destructive transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -254,7 +256,7 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
 
       {/* 選択モード時のアクションバー */}
       {isSelectionMode && (
-        <div className="p-4 border-t bg-destructive/10 fade-in-up">
+        <div className="p-4 border-t bg-destructive/10 animate-in fade-in slide-in-from-bottom-2">
           <button
             type="button"
             onClick={handleDeleteSelected}

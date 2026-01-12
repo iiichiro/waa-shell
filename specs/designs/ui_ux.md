@@ -25,7 +25,7 @@
 ### 2.9 Settings > OAuth (Validation)
 
 - **Deep Link Setup**:
-  - MCP サーバー（Gitlab 等）の認証コールバックを受け取るため、アプリ起動時に `waa-shell://` スキームの登録を確認・要求する UI。
+  - MCP サーバ（Gitlab 等）の認証コールバックを受け取るため、アプリ起動時に `waa-shell://` スキームの登録を確認・要求する UI。
 
 ### 2.11 File Gallery & Management
 

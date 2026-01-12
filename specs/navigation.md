@@ -66,7 +66,7 @@ graph TD
 ### 3.2 設定画面 (`SettingsView`)
 - **表示条件**: `isSettingsOpen === true`
 - **コンポーネント**: `SettingsView.tsx`
-- **サブタブ**: 一般 / AIプロバイダー / モデル設定 / MCPサーバー
+- **サブタブ**: 一般 / AIプロバイダー / モデル設定 / MCPサーバ
 
 ### 3.3 コマンド管理画面 (`CommandManager`)
 - **表示条件**: `isCommandManagerOpen === true`
@@ -195,7 +195,7 @@ stateDiagram-v2
 | `GeneralSettings.tsx`   | `src/components/GeneralSettings.tsx`     | 一般設定タブ               |
 | `ProviderSettings.tsx`  | `src/components/ProviderSettings.tsx`    | AIプロバイダー設定タブ     |
 | `ModelSettings.tsx`     | `src/components/ModelSettings.tsx`       | モデル設定タブ             |
-| `McpServerSettings.tsx` | `src/components/McpServerSettings.tsx`   | MCPサーバー設定タブ        |
+| `McpServerSettings.tsx` | `src/components/McpServerSettings.tsx`   | MCPサーバ設定タブ        |
 | `CommandManager.tsx`    | `src/components/CommandManager.tsx`      | コマンド管理画面           |
 | `FileExplorer.tsx`      | `src/components/FileExplorer.tsx`        | ファイル管理画面           |
 | `ThreadSettingsModal.tsx` | `src/components/ThreadSettingsModal.tsx` | スレッド設定モーダル       |

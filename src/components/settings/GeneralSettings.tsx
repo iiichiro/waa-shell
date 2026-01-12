@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Keyboard, MousePointer2, Wand2 } from 'lucide-react';
+import { Database, Keyboard, MousePointer2, Trash2, Wand2 } from 'lucide-react';
 import { db } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
 import { useAppStore } from '../../store/useAppStore';
@@ -50,7 +50,7 @@ export function GeneralSettings() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in slide-in-from-right">
       <section>
         <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <Keyboard className="w-5 h-5 text-primary" />
@@ -95,7 +95,7 @@ export function GeneralSettings() {
             {sendShortcut === 'enter' ? (
               <p>
                 •{' '}
-                <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-primary border border-white/10">
+                <kbd className="bg-foreground/10 px-1.5 py-0.5 rounded text-primary border border-border">
                   Enter
                 </kbd>{' '}
                 で送信
@@ -194,7 +194,7 @@ export function GeneralSettings() {
           </div>
 
           {autoGenerateTitle && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
               <div className="space-y-2">
                 <label
                   htmlFor="auto-title-provider-select"
@@ -249,6 +249,47 @@ export function GeneralSettings() {
               </div>
             </div>
           )}
+        </div>
+      </section>
+      <section>
+        <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Database className="w-5 h-5 text-primary" />
+          <span>データ管理</span>
+        </h3>
+        <div className="bg-muted/30 border rounded-lg p-6 space-y-6">
+          <div className="flex flex-col items-start justify-between gap-2">
+            <div className="space-y-1">
+              <h4 className="font-medium text-destructive">全データを消去</h4>
+              <p className="text-sm text-muted-foreground">
+                アプリケーションの全てのデータ（スレッド、メッセージ、設定）を削除し、初期状態に戻します。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                if (
+                  !confirm(
+                    '本当に全てのデータを消去しますか？\nこの操作は取り消せません。スレッド、メッセージ、設定など全てのデータが失われます。',
+                  )
+                ) {
+                  return;
+                }
+
+                try {
+                  await db.delete();
+                  localStorage.clear();
+                  window.location.reload();
+                } catch (e) {
+                  console.error('Failed to clear data:', e);
+                  alert('データの消去に失敗しました。');
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-border rounded-md text-sm font-medium transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              全データを消去
+            </button>
+          </div>
         </div>
       </section>
     </div>

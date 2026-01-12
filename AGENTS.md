@@ -81,6 +81,29 @@
 - **実行タイミング**:
   - コミット前、またはプルリクエスト作成前に必ずテストを実行し、Passすることを確認してください。
 
+### 2.5 デザインシステムとスタイリング
+
+一貫したUI/UXを維持するため、以下のスタイリングルールを厳守してください。
+
+- **セマンティックカラーの徹底**:
+  - `red-500`, `white`, `black` といった固定値カラーの使用は原則禁止です。常に `index.css` で定義されたテーマ変数を使用してください。
+  - **基本変数**: `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, `popover`
+  - **記法例**: `bg-primary`, `text-muted-foreground`, `border-border`, `focus:ring-primary/50`
+- **破壊的アクション**:
+  - 削除、エラー、警告などの「破壊的」な要素には `destructive` カラーを使用します。
+  - `bg-destructive`, `text-destructive`, `border-destructive` 等。
+- **背景とコントラスト**:
+  - 背景に色（`primary`, `destructive` 等）を敷く場合のテキストには、必ず `-foreground` 系の変数（`text-primary-foreground` 等）を使用し、視認性を確保してください。
+  - わずかな背景の差（Subtle background）を表現する場合は、`bg-muted/30` または `bg-foreground/5` を使用してください。`bg-white/5` などの固定値指定はダークモードで不適切になるため禁止です。
+- **アニメーション**:
+  - `index.css` に定義された標準アニメーションクラスを使用してください。
+  - `animate-in`, `fade-in`, `zoom-in-95`, `slide-in-from-right`, `slide-in-from-bottom-2` 等。
+- **フォーム要素**:
+  - 入力フィールドやボタンは以下のスタイルを基本とします：
+    - 背景: `bg-muted/30` または `bg-background`
+    - 枠線: `border-border`
+    - フォーカス時: `focus:ring-1 focus:ring-primary/50`
+
 ---
 
 **Note**: `specs/changes/` ディレクトリが存在しない場合は作成してください。

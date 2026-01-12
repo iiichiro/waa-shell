@@ -214,7 +214,7 @@ src/
 | `ProviderService.ts` | AI プロバイダー（OpenAI, Gemini など）の管理 |
 | `AuthService.ts` | 認証・API キー管理 |
 | `FileService.ts` | ファイルアップロード・管理 |
-| `McpService.ts` | MCP サーバー連携 |
+| `McpService.ts` | MCP サーバ連携 |
 | `TemplateService.ts` | プロンプトテンプレート管理 |
 | `ToolService.ts` | ツール機能（Function Calling）管理 |
 

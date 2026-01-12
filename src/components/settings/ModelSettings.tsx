@@ -370,10 +370,14 @@ export function ModelSettings() {
   };
 
   if (isLoading)
-    return <div className="p-8 text-center text-muted-foreground animate-pulse">読み込み中...</div>;
+    return (
+      <div className="p-8 text-center text-muted-foreground animate-pulse animate-in fade-in slide-in-from-right">
+        読み込み中...
+      </div>
+    );
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div className="space-y-6 h-full flex flex-col animate-in fade-in slide-in-from-right">
       {/* ツールバー */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -381,7 +385,7 @@ export function ModelSettings() {
           <select
             value={targetProviderId}
             onChange={(e) => setTargetProviderId(e.target.value)}
-            className={`border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring ${providers.length === 0 ? 'border-red-500 text-red-500' : 'bg-background text-foreground'}`}
+            className={`border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring ${providers.length === 0 ? 'border-destructive text-destructive' : 'bg-background text-foreground'}`}
           >
             {providers.length === 0 && <option value="">プロバイダーなし</option>}
             {providers.map((p) => (
@@ -429,14 +433,14 @@ export function ModelSettings() {
 
           <div className="flex justify-end gap-2">
             {selectedModelIds.size > 0 && (
-              <div className="flex items-center gap-1 bg-brand-primary/10 px-2 py-1 rounded-lg border border-brand-primary/20">
-                <span className="text-xs font-bold text-brand-primary mr-2">
+              <div className="flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-lg border border-primary/20">
+                <span className="text-xs font-bold text-primary mr-2">
                   {selectedModelIds.size}件選択
                 </span>
                 <button
                   type="button"
                   onClick={() => handleBulkToggle(true)}
-                  className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
+                  className="p-1 hover:bg-primary/20 rounded text-primary"
                   title="一括有効化"
                 >
                   <Eye className="w-4 h-4" />
@@ -444,7 +448,7 @@ export function ModelSettings() {
                 <button
                   type="button"
                   onClick={() => handleBulkToggle(false)}
-                  className="p-1 hover:bg-brand-primary/20 rounded text-brand-primary"
+                  className="p-1 hover:bg-primary/20 rounded text-primary"
                   title="一括無効化"
                 >
                   <EyeOff className="w-4 h-4" />
@@ -477,7 +481,7 @@ export function ModelSettings() {
       {/* モデルリスト */}
       <div className="flex-1 overflow-y-auto border rounded-md bg-muted/20 custom-scrollbar">
         <table className="w-full text-left border-collapse">
-          <thead className="bg-white/5 sticky top-0 z-10 backdrop-blur-md">
+          <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
             <tr>
               <th className="p-3 w-10 text-center">
                 <button
@@ -517,7 +521,7 @@ export function ModelSettings() {
                   <button
                     type="button"
                     onClick={() => toggleSelection(model.id)}
-                    className={`transition-colors ${selectedModelIds.has(model.id) ? 'text-brand-primary' : 'text-secondary'}`}
+                    className={`transition-colors ${selectedModelIds.has(model.id) ? 'text-primary' : 'text-muted-foreground'}`}
                   >
                     {selectedModelIds.has(model.id) ? (
                       <CheckSquare className="w-4 h-4" />
@@ -633,7 +637,7 @@ export function ModelSettings() {
                         className={`p-1.5 rounded-lg transition-colors ${
                           model.isApiOverride
                             ? 'hover:bg-orange-500/10 text-orange-400'
-                            : 'hover:bg-red-500/10 text-red-400'
+                            : 'hover:bg-destructive/10 text-destructive'
                         }`}
                         title={model.isApiOverride ? 'デフォルトに戻す' : '削除'}
                       >
@@ -659,7 +663,7 @@ export function ModelSettings() {
       {/* マニュアルモデル登録モーダル */}
       {isManualModalOpen &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="w-full max-w-lg bg-background border rounded-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden">
               <header className="flex items-center justify-between p-4 border-b bg-muted/20">
                 <h3 className="font-bold text-foreground flex items-center gap-2">
@@ -718,7 +722,7 @@ export function ModelSettings() {
                     <div>
                       <label
                         htmlFor="manual-name"
-                        className="block text-xs font-bold text-secondary mb-1.5"
+                        className="block text-xs font-bold text-muted-foreground mb-1.5"
                       >
                         表示名 (Alias)
                       </label>
@@ -738,7 +742,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-model-id"
-                      className="block text-xs font-bold text-secondary mb-1.5"
+                      className="block text-xs font-bold text-muted-foreground mb-1.5"
                     >
                       モデルID (API識別子)
                     </label>
@@ -786,7 +790,7 @@ export function ModelSettings() {
                             enableStream: e.target.checked,
                           }))
                         }
-                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
                       />
                       <span className="text-xs font-medium">ストリーミング有効</span>
                     </label>
@@ -800,7 +804,7 @@ export function ModelSettings() {
                             supportsTools: e.target.checked,
                           }))
                         }
-                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
                       />
                       <span className="text-xs font-medium">ツール利用 (Function Calling)</span>
                     </label>
@@ -814,7 +818,7 @@ export function ModelSettings() {
                             supportsImages: e.target.checked,
                           }))
                         }
-                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
                       />
                       <span className="text-xs font-medium">画像/ファイル入力</span>
                     </label>
@@ -888,7 +892,7 @@ export function ModelSettings() {
                     <div>
                       <label
                         htmlFor="manual-context-window"
-                        className="block text-xs font-bold text-secondary mb-1.5"
+                        className="block text-xs font-bold text-muted-foreground mb-1.5"
                       >
                         Context Window
                       </label>
@@ -909,7 +913,7 @@ export function ModelSettings() {
                     <div>
                       <label
                         htmlFor="manual-max-tokens"
-                        className="block text-xs font-bold text-secondary mb-1.5"
+                        className="block text-xs font-bold text-muted-foreground mb-1.5"
                       >
                         Max Output Tokens
                       </label>
@@ -932,7 +936,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-system-prompt"
-                      className="block text-xs font-bold text-secondary mb-1.5"
+                      className="block text-xs font-bold text-muted-foreground mb-1.5"
                     >
                       Default System Prompt
                     </label>
@@ -953,7 +957,7 @@ export function ModelSettings() {
                   <div>
                     <label
                       htmlFor="manual-extra-params"
-                      className="block text-xs font-bold text-secondary mb-1.5"
+                      className="block text-xs font-bold text-muted-foreground mb-1.5"
                     >
                       Extra Params (JSON)
                     </label>

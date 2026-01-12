@@ -150,16 +150,36 @@ export async function chatCompletion(options: ChatCompletionOptions) {
   );
 }
 
+export interface ResponseInputItem {
+  role: string;
+  content?: string | unknown[];
+  tool_call_id?: string;
+  tool_calls?: unknown[];
+}
+
+export interface ResponseOutputItem {
+  type: 'message' | 'tool_call' | 'reasoning' | string;
+  id?: string;
+  content?: { type: 'output_text'; text: string }[];
+  function?: { name: string; arguments: string };
+  summary?: { type: 'summary_text'; text: string }[];
+}
+
+export interface ResponseOutput {
+  output: ResponseOutputItem[];
+}
+
 /**
  * Response API (POST /v1/responses) を呼び出す
  */
 export async function createResponseApi(options: {
   model: string; // ManualModel UUID or API Model ID
-  input: unknown[]; // ResponseInput
+  input: ResponseInputItem[]; // ResponseInput
+  tools?: OpenAI.Chat.ChatCompletionTool[]; // Added tools support
   max_tokens?: number;
   extraParams?: Record<string, unknown>;
   signal?: AbortSignal;
-}) {
+}): Promise<ResponseOutput> {
   let modelId = options.model;
   let mergedExtraParams = options.extraParams || {};
   const systemParams: Record<string, unknown> = {};
@@ -192,12 +212,14 @@ export async function createResponseApi(options: {
   const body = {
     model: modelId,
     input: options.input,
+    tools: options.tools, // Pass tools
     ...systemParams,
     ...mergedExtraParams,
   };
 
   // @ts-expect-error: client.responses might be missing in some typescript views if not fully updated, but valid at runtime
-  return await client.responses.create(body, { signal: options.signal });
+  const response = await client.responses.create(body, { signal: options.signal });
+  return response as unknown as ResponseOutput;
 }
 
 /**

@@ -8,7 +8,12 @@ import type {
 import { db, type Message } from '../db';
 import { getActivePathMessages } from '../db/threads';
 import { fileToBase64 } from './FileService';
-import { chatCompletion, listModels } from './ModelService';
+import {
+  chatCompletion,
+  createResponseApi,
+  listModels,
+  type ResponseInputItem,
+} from './ModelService';
 import { executeTool, getToolDefinitions } from './ToolService';
 
 interface ThinkingBlock {
@@ -198,141 +203,12 @@ export async function sendMessage(
     const supportsImages = currentModel ? currentModel.supportsImages !== false : true;
     const protocol = currentModel?.protocol || 'chat_completion';
 
-    if (protocol === 'response_api') {
-      try {
-        const inputItems: unknown[] = [];
-
-        // System Prompt
-        if (systemPrompt) {
-          inputItems.push({
-            role: 'system',
-            content: systemPrompt,
-          });
-        }
-
-        // History
-        for (const m of history) {
-          const item: Record<string, unknown> = { role: m.role };
-          if (m.role === 'tool') {
-            // tool messages
-            item.content = m.content;
-            item.tool_call_id = m.tool_call_id;
-          } else if (m.role === 'assistant' && m.tool_calls) {
-            // assistant tool calls
-            item.content = m.content || null;
-            item.tool_calls = m.tool_calls;
-          } else {
-            // user or assistant text
-            // Handle Images for User
-            if (m.role === 'user' && m.id !== undefined) {
-              const files = await db.files.where('messageId').equals(m.id).toArray();
-              const imageFiles = files.filter((f) => f.mimeType.startsWith('image/'));
-
-              if (imageFiles.length > 0 && supportsImages) {
-                const contentList: unknown[] = [{ type: 'text', text: m.content || '' }];
-                for (const file of imageFiles) {
-                  if (file.id === undefined) continue;
-                  const { base64 } = await fileToBase64(file.id);
-                  contentList.push({
-                    type: 'image_url',
-                    image_url: { url: `data:${file.mimeType};base64,${base64}` },
-                  });
-                }
-                item.content = contentList;
-              } else {
-                item.content = m.content || '';
-              }
-            } else {
-              item.content = m.content || '';
-            }
-          }
-          inputItems.push(item);
-        }
-
-        // Client & Request
-        // TODO: ChatService should not import from openai directly for types if possible, but here we use 'any' for simplicity or need to import types.
-        // We use 'chatCompletion' wrapper but it is designed for 'chat.completions'.
-        // We need 'getOpenAIClient' logic here or expand 'chatCompletion' to support 'responses'.
-        // For now, let's reuse 'chatCompletion' but we need to modify it or access client directly.
-        // 'chatCompletion' in ModelService returns a specific result.
-        // Let's modify 'ModelService' to expose a 'createResponse' function or similar.
-        // OR: Since I cannot easily modify 'ModelService' interface extensively right now without breaking changes,
-        // will use a new exported function from ModelService `createResponseApi`.
-        const { createResponseApi } = await import('./ModelService');
-
-        // biome-ignore lint/suspicious/noExplicitAny: Response API return type is dynamic
-        const response: any = await createResponseApi({
-          // Issue: 'listModels' returns flattened info. We need the actual provider object to create client.
-          // Helper 'getModelProvider' or similar needed.
-          // Let's rely on 'modelId' (UUID) to let ModelService find the config/manual model and then the provider.
-          model: modelId,
-          input: inputItems,
-          max_tokens: maxTokens,
-          extraParams: extraParams,
-          signal: options.signal,
-        });
-
-        // Handle Response (Non-streaming for now as per initial implementation, or check stream option)
-        // User request sample uses `await openai.responses.create(...)` and logs `response.output`.
-        // The output is an array of items.
-
-        // Find 'message' item
-        const outputItems = (response.output || []) as {
-          type: string;
-          content?: { type: string; text: string }[];
-          summary?: { type: string; text: string }[];
-        }[];
-        const messageItem = outputItems.find((item) => item.type === 'message');
-        const reasoningItem = outputItems.find((item) => item.type === 'reasoning');
-
-        let content = '';
-        let reasoningSummary = '';
-
-        if (messageItem?.content) {
-          // content is list of {type: 'output_text', text: '...'}
-          for (const c of messageItem.content) {
-            if (c.type === 'output_text') content += c.text;
-          }
-        }
-
-        if (reasoningItem?.summary) {
-          for (const s of reasoningItem.summary) {
-            if (s.type === 'summary_text') reasoningSummary += s.text;
-          }
-        }
-
-        // Save Assistant Message
-        const assistantMessage: Message = {
-          threadId,
-          role: 'assistant',
-          content: content || '(No content)',
-          reasoningSummary: reasoningSummary,
-          parentId: currentParentId,
-          model: modelName,
-          createdAt: new Date(),
-        };
-
-        const finalId = await db.messages.add(assistantMessage);
-        await db.threads.update(threadId, { activeLeafId: finalId });
-        assistantMessage.id = finalId;
-        return assistantMessage;
-      } catch (error) {
-        console.error('Response API Error:', error);
-        throw error; // Let the catch block below handle it
-      }
-    }
-
     if (systemPrompt) {
       messagesForAi.push({ role: 'system', content: systemPrompt });
     }
 
     for (const m of history) {
       if (m.tool_calls && m.tool_calls.length > 0) {
-        // ツール非対応モデルの場合はどうする？
-        // 履歴にツール呼び出しがあるが、今ツール非対応なら、これを含めるとエラーになる可能性がある。
-        // しかし履歴は履歴なので含めるべきか？
-        // 一旦含めるが、モデルがエラーを吐くかもしれない。
-        // ここでは「これから送る・使う機能」を制限する意図なので履歴はそのままにする。
         messagesForAi.push({
           role: 'assistant',
           content: m.content || null,
@@ -369,14 +245,14 @@ export async function sendMessage(
 
       if (contentParts.length > 1) {
         messagesForAi.push({
-          role: m.role,
+          role: m.role as 'user' | 'assistant' | 'system', // cast for safety
           content: contentParts,
         } as ChatCompletionMessageParam);
       } else {
         messagesForAi.push({
-          role: m.role,
+          role: m.role as 'user' | 'assistant' | 'system',
           content: m.content || '',
-        });
+        } as ChatCompletionMessageParam);
       }
     }
 
@@ -384,6 +260,152 @@ export async function sendMessage(
     // supportsToolsがtrueの場合のみツールを取得して渡す
     const tools = supportsTools ? await getToolDefinitions() : [];
 
+    if (protocol === 'response_api') {
+      try {
+        // Convert messagesForAi to Response API (Input) format
+        const inputItems: ResponseInputItem[] = messagesForAi.map((m) => {
+          const item: ResponseInputItem = { role: m.role };
+
+          if ('content' in m && m.content) {
+            if (typeof m.content === 'string') {
+              item.content = m.content;
+            } else {
+              // ChatCompletionContentPart[] -> unknown[]
+              item.content = m.content as unknown[];
+            }
+          }
+
+          if (m.role === 'tool' && 'tool_call_id' in m) {
+            item.tool_call_id = m.tool_call_id;
+          }
+
+          if (m.role === 'assistant' && 'tool_calls' in m) {
+            item.tool_calls = m.tool_calls;
+          }
+
+          return item;
+        });
+
+        const response = await createResponseApi({
+          model: modelId,
+          input: inputItems,
+          tools: tools.length > 0 ? tools : undefined,
+          max_tokens: maxTokens,
+          extraParams: extraParams,
+          signal: options.signal,
+        });
+
+        // Handle Response
+        const outputItems = (response.output || []) as {
+          type: string;
+          content?: { type: string; text: string }[];
+          id?: string;
+          function?: { name: string; arguments: string };
+          summary?: { type: string; text: string }[];
+        }[];
+
+        const messageItem = outputItems.find((item) => item.type === 'message');
+        const reasoningItem = outputItems.find((item) => item.type === 'reasoning');
+        // Find tool calls (assuming type 'tool_call' or similar based on typical patterns, or check API spec if available.
+        // Failing specific matching doc, we look for items with type='tool_call')
+        const toolCallItems = outputItems.filter((item) => item.type === 'tool_call');
+
+        let content = '';
+        let reasoningSummary = '';
+
+        if (messageItem?.content) {
+          for (const c of messageItem.content) {
+            if (c.type === 'output_text') content += c.text;
+          }
+        }
+
+        if (reasoningItem?.summary) {
+          for (const s of reasoningItem.summary) {
+            if (s.type === 'summary_text') reasoningSummary += s.text;
+          }
+        }
+
+        // Check for tools
+        const responseToolCalls = toolCallItems.map((item) => ({
+          id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
+          type: 'function' as const,
+          function: {
+            name: item.function?.name || '',
+            arguments: item.function?.arguments || '{}',
+          },
+        }));
+
+        if (responseToolCalls.length > 0) {
+          const assistantId = await db.messages.add({
+            threadId,
+            role: 'assistant',
+            content: content || '', // Tool calls might come with empty content
+            reasoningSummary: reasoningSummary,
+            tool_calls: responseToolCalls,
+            model: modelName,
+            parentId: currentParentId,
+            createdAt: new Date(),
+          });
+          currentParentId = assistantId;
+          await db.threads.update(threadId, { activeLeafId: assistantId });
+
+          for (const toolCall of responseToolCalls) {
+            if (toolCall.type !== 'function') continue;
+            let toolResult = '';
+            try {
+              const args = JSON.parse(toolCall.function.arguments);
+              toolResult = await executeTool(toolCall.function.name, args);
+            } catch (e) {
+              toolResult = `Error: ${String(e)}`;
+            }
+
+            const toolId = await db.messages.add({
+              threadId,
+              role: 'tool',
+              content: toolResult,
+              tool_call_id: toolCall.id,
+              parentId: currentParentId,
+              createdAt: new Date(),
+            });
+            currentParentId = toolId;
+            await db.threads.update(threadId, { activeLeafId: toolId });
+          }
+          continue; // Loop again with tool results
+        }
+
+        // Save Assistant Message (No tools)
+        const assistantMessage: Message = {
+          threadId,
+          role: 'assistant',
+          content: content || '(No content)',
+          reasoningSummary: reasoningSummary,
+          parentId: currentParentId,
+          model: modelName,
+          createdAt: new Date(),
+        };
+
+        const finalId = await db.messages.add(assistantMessage);
+        await db.threads.update(threadId, { activeLeafId: finalId });
+        assistantMessage.id = finalId;
+        return assistantMessage;
+      } catch (error) {
+        console.error('Response API Error:', error);
+        const errorMessage: Message = {
+          threadId,
+          role: 'assistant',
+          content: `エラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+          parentId: currentParentId,
+          model: 'system',
+          createdAt: new Date(),
+        };
+        const errorId = await db.messages.add(errorMessage);
+        await db.threads.update(threadId, { activeLeafId: errorId });
+        errorMessage.id = errorId;
+        return errorMessage;
+      }
+    }
+
+    // Default: Chat Completion
     try {
       const response = await chatCompletion({
         model: modelId,

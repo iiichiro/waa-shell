@@ -2,6 +2,7 @@ import type {
   ChatCompletion,
   ChatCompletionChunk,
   ChatCompletionContentPart,
+  ChatCompletionMessage,
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions';
 import { db, type Message } from '../db';
@@ -9,6 +10,23 @@ import { getActivePathMessages } from '../db/threads';
 import { fileToBase64 } from './FileService';
 import { chatCompletion, listModels } from './ModelService';
 import { executeTool, getToolDefinitions } from './ToolService';
+
+interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+  signature?: string;
+}
+
+interface ExtendedChatCompletionMessage {
+  reasoning_content?: string;
+  thinking_blocks?: ThinkingBlock[];
+}
+
+interface ExtendedChatCompletionDelta {
+  content?: string | null;
+  reasoning_content?: string;
+  tool_calls?: unknown[];
+}
 
 /**
  * スレッドを削除し、関連するデータ（メッセージ、ファイル、設定）をすべて削除する
@@ -42,6 +60,7 @@ export async function deleteMultipleThreads(threadIds: number[]): Promise<void> 
 export async function createThread(
   title: string,
   settings?: {
+    providerId?: string;
     modelId?: string;
     systemPrompt?: string;
     contextWindow?: number;
@@ -61,6 +80,7 @@ export async function createThread(
     if (settings) {
       await db.threadSettings.add({
         threadId,
+        providerId: settings.providerId,
         modelId: settings.modelId || '',
         systemPrompt: settings.systemPrompt,
         contextWindow: settings.contextWindow,
@@ -90,12 +110,25 @@ export async function sendMessage(
 ): Promise<Message | AsyncIterable<ChatCompletionChunk>> {
   const threadSetting = await db.threadSettings.where({ threadId }).first();
   const modelId = threadSetting?.modelId || requestModelId;
+  const providerId = threadSetting?.providerId;
 
   // 0. モデルの有効状態をチェック
+  // プロバイダー指定がある場合はそのプロバイダーのモデルリストを取得してチェックすべきだが
+  // listModelsは全結合リストを返す仕様なのでfindで探す。
+  // ただし、ManualModelの場合はproviderId情報はlistModelsの結果に含まれている。
   const allModels = await listModels();
-  const currentModel = allModels.find((m) => m.id === modelId);
+  // モデルIDとプロバイダーで一致するものを探す（もしproviderIdがあれば）
+  const currentModel = allModels.find(
+    (m) => m.id === modelId && (!providerId || m.providerId === providerId),
+  );
   if (currentModel && !currentModel.isEnabled) {
     throw new Error(`モデル「${currentModel.name}」は無効化されているため送信できません。`);
+  }
+
+  // プロバイダーオブジェクトの取得 (指定がある場合)
+  let specificProvider: import('../db').Provider | undefined;
+  if (providerId) {
+    specificProvider = await db.providers.get(Number(providerId));
   }
 
   const now = new Date();
@@ -359,6 +392,7 @@ export async function sendMessage(
         tools: tools.length > 0 ? tools : undefined,
         max_tokens: maxTokens,
         extraParams: extraParams,
+        provider: specificProvider, // pass the resolved provider
         signal: options.signal,
       });
 
@@ -375,11 +409,22 @@ export async function sendMessage(
       const result = response as ChatCompletion;
       const message = result.choices[0].message;
 
+      // Extract reasoning if available
+      const msgAny = message as ChatCompletionMessage & ExtendedChatCompletionMessage;
+      let reasoning = msgAny.reasoning_content || '';
+      if (msgAny.thinking_blocks && Array.isArray(msgAny.thinking_blocks)) {
+        reasoning = (msgAny.thinking_blocks as ThinkingBlock[])
+          .filter((b: ThinkingBlock) => b.type === 'thinking')
+          .map((b: ThinkingBlock) => b.thinking)
+          .join('\n');
+      }
+
       if (message.tool_calls && message.tool_calls.length > 0) {
         const assistantId = await db.messages.add({
           threadId,
           role: 'assistant',
           content: message.content || '',
+          reasoning: reasoning, // Save reasoning content
           tool_calls: message.tool_calls,
           model: modelName,
           parentId: currentParentId,
@@ -416,6 +461,7 @@ export async function sendMessage(
         threadId,
         role: 'assistant',
         content: message.content || '',
+        reasoning: reasoning, // Save reasoning content
         parentId: currentParentId,
         usage: result.usage
           ? {
@@ -457,6 +503,7 @@ async function* handleStreamResponse(
   stream: AsyncIterable<ChatCompletionChunk>,
 ): AsyncIterable<ChatCompletionChunk> {
   let fullContent = '';
+  let fullReasoning = '';
   // biome-ignore lint/suspicious/noExplicitAny: Building partial tool calls requires flexible object
   const toolCallsMap: Record<number, any> = {};
   let isToolCall = false;
@@ -466,8 +513,13 @@ async function* handleStreamResponse(
     const choice = chunk.choices[0];
     if (!choice) continue;
 
-    if (choice.delta?.content) {
-      fullContent += choice.delta.content;
+    const deltaAny = choice.delta as ExtendedChatCompletionDelta;
+    if (deltaAny.content) {
+      fullContent += deltaAny.content;
+    }
+
+    if (deltaAny.reasoning_content) {
+      fullReasoning += deltaAny.reasoning_content;
     }
 
     if (choice.delta?.tool_calls) {
@@ -497,6 +549,7 @@ async function* handleStreamResponse(
       threadId,
       role: 'assistant',
       content: fullContent,
+      reasoning: fullReasoning,
       tool_calls: toolCalls,
       model: modelName,
       parentId: currentParentId,
@@ -540,6 +593,7 @@ async function* handleStreamResponse(
       threadId,
       role: 'assistant',
       content: fullContent,
+      reasoning: fullReasoning,
       model: modelName,
       parentId: currentParentId,
       createdAt: new Date(),

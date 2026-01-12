@@ -55,6 +55,7 @@ vi.mock('lucide-react', () => ({
   Sliders: () => React.createElement('span', null, 'Sliders'),
   CheckSquare: () => React.createElement('span', null, 'CheckSquare'),
   Square: () => React.createElement('span', null, 'Square'),
+  Wrench: () => React.createElement('span', null, 'Wrench'),
 }));
 
 // モック: framer-motion (JSDOM でラグやエラーが出るのを防ぐ)

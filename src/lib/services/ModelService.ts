@@ -83,6 +83,9 @@ export async function chatCompletion(options: ChatCompletionOptions) {
   let mergedExtraParams = options.extraParams || {};
   const systemParams: Record<string, unknown> = {};
 
+  // プロバイダー解決用変数を追加
+  let resolvedProvider = options.provider;
+
   // まず ManualModel (UUID) として検索
   const manualModel = await db.manualModels.where('uuid').equals(modelId).first();
 
@@ -98,13 +101,12 @@ export async function chatCompletion(options: ChatCompletionOptions) {
     // MaxTokens等の設定
     if (manualModel.maxTokens) systemParams.max_tokens = manualModel.maxTokens;
 
-    // note: systemPrompt はここではなく、メッセージ履歴構築側で注入済みであることを想定するが
-    // もし APIパラメータとして送れるならここで送る？ 通常は messages array に入れるもの。
-    // 今回のスコープでは、呼び出し元(ChatService)が ManualModel の defaultSystemPrompt を
-    // メッセージリストに含めているか、あるいはここで messages を改変する必要がある。
-    // ChatService 側で messages を構築しているので、ここでの改変は最小限にしたいが、
-    // ManualModel の情報はここで引いている。
-    // -> ひとまずここでは ID解決とパラメータマージに集中する。
+    // プロバイダーの解決 (ManualModelに紐付くプロバイダーを優先)
+    if (!resolvedProvider && manualModel.providerId) {
+      resolvedProvider = await db.providers.get(Number(manualModel.providerId));
+    }
+
+    // note: systemPrompt はここではなく、メッセージ履歴構築側で注入済みであることを想定
   } else {
     // UUIDでなければ、従来のCustomModelを検索（後方互換）
     const customModel = await db.customModels.where({ modelId }).first();
@@ -117,7 +119,7 @@ export async function chatCompletion(options: ChatCompletionOptions) {
     }
   }
 
-  const client = await getOpenAIClient(options.provider);
+  const client = await getOpenAIClient(resolvedProvider || options.provider);
   const { extraParams, model, signal, ...params } = options;
 
   // extraParams を統合したリクエストボディの作成
@@ -177,9 +179,7 @@ export async function createResponseApi(options: {
     const customModel = await db.customModels.where({ modelId }).first();
     if (customModel) {
       modelId = customModel.baseModelId;
-      // TODO: resolve provider for custom model (needs logic, but custom model usually based on active provider or saved??
-      // Current DB schema for customModels doesn't link provider directly but implies active?
-      // Actually ModelConfig has providerId.
+      // TODO: resolve provider for custom model
       // For now, fall back to active provider if not manual.
     }
   }
@@ -286,14 +286,6 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
 
   // 手動モデルの追加 (オーバーライド含む)
   manualModels.forEach((m) => {
-    // ModelConfigがある場合はそちらの設定(OrderやIsEnabled)を優先できるが、
-    // ManualModel自体が設定を持つようになったため、基本はManualModelの値を使う。
-    // ただし、Orderは一括管理されているModelConfigを見るほうが自然か？
-    // -> ManualModel自体にはOrderを持たせていないので、ConfigMapから引く必要がある。
-    // しかし ConfigMap のキーは `modelId` だが、ManualModelの場合は `uuid` で管理すべき？
-    // 現状のカラム `modelId` は targetModelId。
-    // ここで問題：Listの並び替え(Order)保存時、ManualModelは何をキーに保存するか？
-    // -> `uuid` をキーにすべき。
     // NOTE: DBのModelConfigは `providerId + modelId` がキー。
     // ManualModelの場合、この `modelId` カラムに `uuid` を入れて保存することにする。
 

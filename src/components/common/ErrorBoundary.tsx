@@ -31,12 +31,12 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="h-screen w-screen bg-red-950 text-red-200 p-8 overflow-auto">
-          <h1 className="text-2xl font-bold mb-4">アプリケーションエラー</h1>
-          <p className="mb-4">予期しないエラーが発生しました。</p>
-          <details className="bg-red-900/50 p-4 rounded-lg">
-            <summary className="cursor-pointer font-semibold">エラー詳細</summary>
-            <pre className="mt-2 text-xs whitespace-pre-wrap">
+        <div className="h-screen w-screen bg-background text-foreground p-8 overflow-auto border-t-4 border-destructive">
+          <h1 className="text-2xl font-bold mb-4 text-destructive">アプリケーションエラー</h1>
+          <p className="mb-4 text-muted-foreground">予期しないエラーが発生しました。</p>
+          <details className="bg-destructive/10 p-4 rounded-lg border border-destructive/20">
+            <summary className="cursor-pointer font-semibold text-destructive">エラー詳細</summary>
+            <pre className="mt-2 text-xs whitespace-pre-wrap font-mono">
               {this.state.error?.toString()}
               {'\n\n'}
               {this.state.errorInfo?.componentStack}
@@ -45,9 +45,9 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg"
+            className="mt-6 px-6 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg font-bold transition-all shadow-lg"
           >
-            リロード
+            アプリを再起動
           </button>
         </div>
       );

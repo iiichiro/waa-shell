@@ -73,7 +73,7 @@ export function ProviderSettings() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+    <div className="space-y-8 animate-in fade-in slide-in-from-right">
       {/* Active Provider Selector */}
       <section className="space-y-3 p-5 bg-gradient-to-br from-primary/5 to-transparent border border-primary/20 rounded-xl shadow-sm">
         <div className="flex flex-col gap-1">
@@ -93,7 +93,7 @@ export function ProviderSettings() {
               const id = Number(e.target.value);
               if (id) setActiveMutation.mutate(id);
             }}
-            className="w-full appearance-none bg-background border border-input rounded-lg px-4 py-3 pr-10 text-sm font-medium shadow-sm transition-all hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+            className="w-full appearance-none bg-background border border-border rounded-lg px-4 py-3 pr-10 text-sm font-medium shadow-sm transition-all hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
           >
             {providers.length === 0 && <option value="">プロバイダーがありません</option>}
             {providers.map((p) => (
@@ -196,7 +196,7 @@ export function ProviderSettings() {
 
       {/* 編集フォーム */}
       {editingProvider && (
-        <div className="p-6 bg-background rounded-lg border border-primary/20 space-y-4 animate-in fade-in slide-in-from-bottom-4 shadow-lg">
+        <div className="p-6 bg-background rounded-lg border border-primary/20 space-y-4 animate-in fade-in slide-in-from-bottom-2 shadow-lg">
           <h4 className="font-bold text-foreground flex items-center gap-2 mb-4">
             {editingProvider.id ? 'プロバイダーを編集' : '新しいプロバイダーを追加'}
           </h4>

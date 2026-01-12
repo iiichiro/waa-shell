@@ -32,6 +32,7 @@ export interface Message {
   cost?: number; // 概算コスト
   parentId?: number | null | undefined; // 親メッセージのID（ブランチ/ツリー構造用）
   model?: string; // 使用されたAIモデルの名前
+  reasoning?: string; // 思考プロセス（フルテキスト）
   reasoningSummary?: string; // 推論プロセスの要約
   createdAt: Date; // 送信日時
 }
@@ -103,11 +104,8 @@ export interface Provider {
 export interface McpServer {
   id?: number;
   name: string; // サーバ識別名
-  type: 'stdio' | 'sse'; // 接続タイプ
-  command?: string; // stdioの場合の実行コマンド
-  args?: string[]; // stdioの場合の引数
-  url?: string; // sseの場合のURL
-  env?: Record<string, string>; // 環境変数
+  type?: 'streamableHttp' | 'sse'; // 接続タイプ
+  url: string; // リモートMCPサーバのエンドポイントURL
   authType: 'none' | 'oidc'; // 認証タイプ
   oidcConfig?: {
     issuer: string; // OIDCプロバイダーのURL
@@ -148,6 +146,7 @@ export interface ModelConfig {
 export interface ThreadSettings {
   id?: number;
   threadId: number; // スレッドID
+  providerId?: string; // 使用するプロバイダーID (Optional)
   modelId: string; // 使用するモデルID
   systemPrompt?: string; // システムプロンプト
   contextWindow?: number; // コンテキストとして含めるメッセージ数制御など
@@ -261,8 +260,15 @@ export class AppDatabase extends Dexie {
     // Schema update for v10: Add supportsResponseApi, protocol, reasoningSummary
     this.version(10).stores({
       // Schema changes only in non-indexed fields, so no store updates strictly needed unless indexes change.
-      // However, it's good practice to bump version when interface changes to ensure Dexie is aware if we needed to run upgraders.
-      // In this case, we just add fields, so no index changes.
+    });
+    // Schema update for v11: Add providerId to ThreadSettings
+    this.version(11).stores({
+      // providerId added to ThreadSettings (non-indexed for now, or indexed if needed for query)
+      // keeping existing schema string if no index change
+    });
+    // Schema update for v12: Add reasoning per message
+    this.version(12).stores({
+      // No index changes
     });
   }
 }

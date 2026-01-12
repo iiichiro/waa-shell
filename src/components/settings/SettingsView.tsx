@@ -1,4 +1,4 @@
-import { Bot, Globe, Network, Settings as SettingsIcon, Sliders } from 'lucide-react';
+import { Bot, Globe, Network, Settings as SettingsIcon, Sliders, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { CommandManager } from '../command/CommandManager';
@@ -8,8 +8,9 @@ import { GeneralSettings } from './GeneralSettings';
 import { McpServerSettings } from './McpServerSettings';
 import { ModelSettings } from './ModelSettings';
 import { ProviderSettings } from './ProviderSettings';
+import { ToolSettings } from './ToolSettings';
 
-type SettingsTab = 'general' | 'provider' | 'mcp' | 'model' | 'commands' | 'files';
+type SettingsTab = 'general' | 'provider' | 'mcp' | 'model' | 'tool' | 'commands' | 'files';
 
 /**
  * 設定画面：各種設定へのエントリーポイント
@@ -20,7 +21,7 @@ export function SettingsView() {
 
   return (
     <div
-      className="flex flex-col bg-background h-full animate-in fade-in zoom-in-95 duration-200"
+      className="flex flex-col bg-background h-full animate-in fade-in zoom-in-95"
       data-testid="header-settings"
     >
       <CommonHeader
@@ -33,6 +34,7 @@ export function SettingsView() {
             { id: 'general', label: '一般', icon: Sliders },
             { id: 'provider', label: 'プロバイダー', icon: Globe },
             { id: 'model', label: 'モデル', icon: Bot },
+            { id: 'tool', label: 'ツール', icon: Wrench },
             { id: 'mcp', label: 'MCP', icon: Network },
             ...(isLauncher
               ? [
@@ -66,11 +68,12 @@ export function SettingsView() {
 
       <main className="flex-1 overflow-y-auto custom-scrollbar">
         <div
-          className={`max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300 ${isLauncher ? 'p-4' : 'p-6 md:p-8'}`}
+          className={`max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-2 ${isLauncher ? 'p-4' : 'p-6 md:p-8'}`}
         >
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'provider' && <ProviderSettings />}
           {activeTab === 'model' && <ModelSettings />}
+          {activeTab === 'tool' && <ToolSettings />}
           {activeTab === 'mcp' && <McpServerSettings />}
           {isLauncher && activeTab === 'commands' && <CommandManager />}
           {isLauncher && activeTab === 'files' && <FileExplorer />}

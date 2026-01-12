@@ -108,9 +108,9 @@ AIモデルのパラメータ設定。
 
 #### ToolCall & McpServer
 
-ツール実行履歴とMCPサーバー設定。
+ツール実行履歴とMCPサーバ設定。
 
-- `McpServer`: 外部ツールサーバーの設定 (URL, OAuth情報)
+- `McpServer`: 外部ツールサーバの設定 (URL, OAuth情報)
 - `ToolCall`: 実際に実行されたツールの記録 (関数名, 引数, 結果)
 
 ### 3.4 実行・ログ

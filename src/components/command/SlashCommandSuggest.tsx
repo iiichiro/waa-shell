@@ -59,8 +59,8 @@ export function SlashCommandSuggest({ query, onSelect, onClose }: Props) {
   }
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-72 bg-sidebar border rounded-xl shadow-2xl overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2">
-      <div className="px-3 py-2 text-[10px] font-bold text-secondary uppercase tracking-widest border-b border-white/5">
+    <div className="absolute bottom-full left-0 mb-2 w-72 bg-background/95 backdrop-blur-md border rounded-xl shadow-2xl overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2">
+      <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border">
         コマンド
       </div>
       <div className="max-h-64 overflow-y-auto p-1 text-left">
@@ -72,8 +72,8 @@ export function SlashCommandSuggest({ query, onSelect, onClose }: Props) {
             onMouseEnter={() => setSelectedIndex(index)}
             className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-colors ${
               index === selectedIndex
-                ? 'bg-brand-primary/20 text-brand-primary'
-                : 'hover:bg-white/5 text-secondary'
+                ? 'bg-primary/10 text-primary'
+                : 'hover:bg-muted text-muted-foreground'
             }`}
           >
             <div className="flex flex-col overflow-hidden">
@@ -83,7 +83,7 @@ export function SlashCommandSuggest({ query, onSelect, onClose }: Props) {
               <span className="text-[10px] opacity-70 truncate">{cmd.description}</span>
             </div>
             {index === selectedIndex && (
-              <span className="text-[10px] font-mono bg-brand-primary/20 px-1 rounded shrink-0">
+              <span className="text-[10px] font-mono bg-primary/20 px-1 rounded shrink-0">
                 Enter
               </span>
             )}

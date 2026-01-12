@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Menu, Plus, Settings, Settings2 } from 'lucide-react';
+import { Menu, Plus, Settings, Settings2, Wrench, X } from 'lucide-react';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { ChangeEvent, ClipboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatInputArea } from './components/chat/ChatInputArea';
 import { ChatMessage } from './components/chat/ChatMessage';
+import { ModelCapabilityIndicators } from './components/chat/ModelCapabilityIndicators';
 import { ThreadSettingsModal } from './components/chat/ThreadSettingsModal';
 import { CommandManager } from './components/command/CommandManager';
 import { SlashCommandForm } from './components/command/SlashCommandForm';
@@ -24,6 +25,7 @@ import {
   updateMessageContent,
 } from './lib/services/ChatService';
 import { listModels, type ModelInfo } from './lib/services/ModelService';
+import { getLocalTools } from './lib/services/ToolService';
 import { useAppStore } from './store/useAppStore';
 
 export default function App() {
@@ -48,6 +50,8 @@ export default function App() {
     autoGenerateTitle,
     titleGenerationProvider,
     titleGenerationModel,
+    enabledTools,
+    setToolEnabled,
   } = useAppStore();
 
   // const [activeThread, setActiveThread] = useState<Thread | null>(null); // useQueryで取得するため削除
@@ -60,6 +64,7 @@ export default function App() {
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // モデル選択状態の管理
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+  const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
 
   // ドラフト設定（新規チャット作成前に設定された値）
   const [draftThreadSettings, setDraftThreadSettings] = useState<Partial<ThreadSettings>>({});
@@ -173,16 +178,52 @@ export default function App() {
     }
   }, [isLauncher]);
 
-  const handleModelChange = useCallback((id: string) => {
-    setSelectedModelId(id);
-  }, []);
+  const handleModelChange = useCallback(
+    (id: string) => {
+      setSelectedModelId(id);
+      if (!activeThreadId) {
+        // 新規チャット時はドラフト設定も更新して同期を保つ
+        setDraftThreadSettings((prev) => ({ ...prev, modelId: id }));
+      }
+    },
+    [activeThreadId],
+  );
 
   useEffect(() => {
-    if (models.length > 0 && !selectedModelId) {
+    if (models.length > 0 && selectedModelId) {
+      // 現在の選択モデルが有効なリストにあるか確認（プロバイダー切り替え時などのため）
+      const isValid = models.some((m) => m.id === selectedModelId);
+      if (!isValid) {
+        // 無効なら先頭の有効なモデルを選択
+        const firstEnabled = models.find((m) => m.isEnabled) || models[0];
+        if (firstEnabled) setSelectedModelId(firstEnabled.id);
+      }
+    } else if (models.length > 0 && !selectedModelId) {
       const firstEnabled = models.find((m) => m.isEnabled) || models[0];
       setSelectedModelId(firstEnabled.id);
     }
   }, [models, selectedModelId]);
+
+  // スレッドの設定を取得（アクティブスレッド変更時の同期用）
+  const { data: threadSettings } = useQuery({
+    queryKey: ['threadSettings', activeThreadId],
+    queryFn: () =>
+      activeThreadId ? db.threadSettings.where({ threadId: activeThreadId }).first() : undefined,
+    enabled: !!activeThreadId,
+  });
+
+  // スレッド変更または設定変更時にヘッダーのモデル選択を同期
+  useEffect(() => {
+    if (activeThreadId) {
+      if (threadSettings?.modelId) {
+        // 既存スレッド設定があれば反映（リストになくてもIDはセットする→表示側で未設定扱い等が可能）
+        setSelectedModelId(threadSettings.modelId);
+      }
+    } else if (draftThreadSettings.modelId) {
+      // 新規チャット時はドラフト設定を反映
+      setSelectedModelId(draftThreadSettings.modelId);
+    }
+  }, [activeThreadId, threadSettings, draftThreadSettings.modelId]);
 
   useEffect(() => {
     // ブラウザデバッグ用、またはTauri環境での判定
@@ -191,9 +232,6 @@ export default function App() {
 
     if (forceLauncher) {
       setIsLauncher(true);
-      if (useAppStore.getState().isSidebarOpen) {
-        toggleSidebar();
-      }
       setActiveThreadId(null);
     } else if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       const windowLabel = getCurrentWindow().label;
@@ -201,13 +239,10 @@ export default function App() {
       setIsLauncher(launcher);
 
       if (launcher) {
-        if (useAppStore.getState().isSidebarOpen) {
-          toggleSidebar();
-        }
         setActiveThreadId(null);
       }
     }
-  }, [toggleSidebar, setActiveThreadId, setIsLauncher]); // Run only once as these are stable
+  }, [setActiveThreadId, setIsLauncher]); // Run only once as these are stable
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -234,6 +269,10 @@ export default function App() {
         if (!showSuggest && !selectedCommand && isLauncher) {
           handleWindowClose();
         }
+        if (isToolMenuOpen) {
+          setIsToolMenuOpen(false);
+          return;
+        }
       }
     };
 
@@ -251,6 +290,7 @@ export default function App() {
     setFileExplorerOpen,
     isThreadSettingsOpen,
     setThreadSettingsOpen,
+    isToolMenuOpen,
     handleWindowClose,
   ]);
 
@@ -651,6 +691,10 @@ export default function App() {
 
   const handleDraftSave = (settings: Partial<ThreadSettings>) => {
     setDraftThreadSettings(settings);
+    // モーダル保存時、モデルIDが含まれていればヘッダーも更新
+    if (settings.modelId) {
+      setSelectedModelId(settings.modelId);
+    }
   };
 
   const placeholderText =
@@ -721,8 +765,6 @@ export default function App() {
                   {activeThread?.title || 'チャット中'}
                 </button>
               )
-            ) : !isLauncher ? (
-              <h2 className="text-sm font-bold text-foreground px-2">新しいチャット</h2>
             ) : null}
             <div className="h-4 w-[1px] bg-border shrink-0 hidden md:block" />
             <div className="flex items-center gap-2 shrink-0 ml-auto md:ml-0">
@@ -744,6 +786,92 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Tool Toggle Menu */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsToolMenuOpen(!isToolMenuOpen)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isToolMenuOpen
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                  title="ローカルツール"
+                >
+                  <Wrench className="w-5 h-5" />
+                </button>
+
+                {isToolMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      className="fixed inset-0 z-30 cursor-default"
+                      onClick={() => setIsToolMenuOpen(false)}
+                      aria-label="メニューを閉じる"
+                    />
+                    <div className="absolute left-0 top-full mt-2 w-64 p-2 bg-muted/95 backdrop-blur-lg border rounded-lg shadow-lg z-40 animate-in fade-in zoom-in-95 duration-200">
+                      <div className="px-2 py-1.5 text-sm font-semibold text-foreground border-b mb-1">
+                        ツール設定
+                      </div>
+                      <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
+                        {getLocalTools().map((tool) => {
+                          const isEnabled = enabledTools[tool.id] !== false;
+                          return (
+                            <label
+                              key={tool.id}
+                              className="flex items-start gap-3 p-2 rounded hover:bg-accent cursor-pointer text-sm"
+                            >
+                              <div className="flex items-center">
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={isEnabled}
+                                  onClick={() => setToolEnabled(tool.id, !isEnabled)}
+                                  className={`w-7 h-4 rounded-full border transition-colors relative ${
+                                    isEnabled ? 'bg-primary' : 'bg-input'
+                                  }`}
+                                >
+                                  <span
+                                    className={`block w-2 h-2 rounded-full shadow-sm transition-transform absolute top-0.75 ${
+                                      isEnabled ? 'left-4 bg-background' : 'left-1 bg-primary'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+                              <span
+                                className={`flex-1 truncate ${
+                                  !isEnabled && 'text-muted-foreground line-through opacity-70'
+                                }`}
+                              >
+                                {tool.name}
+                              </span>
+                            </label>
+                          );
+                        })}
+                        {getLocalTools().length === 0 && (
+                          <div className="text-xs text-muted-foreground p-2 text-center">
+                            利用可能なツールはありません
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 text-center border-t pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettingsOpen(true);
+                            setIsToolMenuOpen(false);
+                            // TODO: Navigate to tool tab automatically if possible
+                          }}
+                          className="text-xs text-primary hover:underline w-full py-1"
+                        >
+                          詳細設定を開く
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="flex items-center gap-2">
                 {/* Provider Selector */}
                 {providers.length > 0 && (
@@ -753,7 +881,7 @@ export default function App() {
                       onChange={(e) => handleProviderChange(e.target.value)}
                       className={`appearance-none bg-muted hover:bg-muted/80 border rounded-lg pl-2 pr-6 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer max-w-[100px] md:max-w-[140px] truncate ${
                         !activeProvider
-                          ? 'border-red-500 text-red-500'
+                          ? 'border-destructive text-destructive'
                           : 'border-transparent hover:border-border/50 text-foreground'
                       }`}
                       title={
@@ -768,7 +896,7 @@ export default function App() {
                       ))}
                     </select>
                     <div
-                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${!activeProvider ? 'text-red-500' : 'text-muted-foreground group-hover:text-foreground'}`}
+                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${!activeProvider ? 'text-destructive' : 'text-muted-foreground group-hover:text-foreground'}`}
                     >
                       <svg
                         className="w-3 h-3"
@@ -796,10 +924,10 @@ export default function App() {
                       onChange={(e) => handleModelChange(e.target.value)}
                       className={`appearance-none bg-muted hover:bg-muted/80 border rounded-lg pl-2 pr-6 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer max-w-[120px] md:max-w-[180px] truncate ${
                         models.find((m) => m.id === selectedModelId && !m.isEnabled)
-                          ? 'border-red-500 text-red-500'
+                          ? 'border-destructive text-destructive'
                           : 'border-transparent hover:border-border/50 text-foreground'
                       }`}
-                      title="モデルを変更"
+                      title={`モデルを変更: ${selectedModelId}`}
                       disabled={models.length === 0}
                     >
                       {models.length === 0 ? (
@@ -836,7 +964,7 @@ export default function App() {
                     <div
                       className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
                         models.find((m) => m.id === selectedModelId && !m.isEnabled)
-                          ? 'text-red-500'
+                          ? 'text-destructive'
                           : 'text-muted-foreground group-hover:text-foreground'
                       }`}
                     >
@@ -858,6 +986,9 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Capability Indicators */}
+                <ModelCapabilityIndicators model={models.find((m) => m.id === selectedModelId)} />
+
                 <button
                   type="button"
                   onClick={() => setThreadSettingsOpen(true)}
@@ -874,6 +1005,17 @@ export default function App() {
                 >
                   <Settings2 className="w-5 h-5" />
                 </button>
+
+                {isLauncher && (
+                  <button
+                    type="button"
+                    onClick={handleWindowClose}
+                    className="p-2 -mr-2 rounded-lg text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                    title="ランチャーを閉じる"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -919,7 +1061,7 @@ export default function App() {
               }
             />
           ))}
-          {/* AI Thinking Indicator: ストリーミング開始前（サーバー接続中）に表示 */}
+          {/* AI Thinking Indicator: ストリーミング開始前（サーバ接続中）に表示 */}
           {sendMutation.isPending && !streamingContent && (
             <ChatMessage
               message={{
@@ -976,7 +1118,7 @@ export default function App() {
                     onClick={handleStop}
                     className="flex items-center gap-2 bg-background border shadow-lg px-4 py-2 rounded-full text-sm font-medium hover:bg-muted transition-colors animate-in fade-in slide-in-from-bottom-2"
                   >
-                    <div className="w-2.5 h-2.5 bg-red-500 rounded-[2px]" />
+                    <div className="w-2.5 h-2.5 bg-destructive rounded-[2px]" />
                     生成を停止
                   </button>
                 </div>
@@ -1005,19 +1147,19 @@ export default function App() {
 
         {/* Sub-screen Overlays */}
         {isCommandManagerOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right duration-300">
+          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
             <CommandManager />
           </div>
         )}
 
         {isSettingsOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right duration-300">
+          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
             <SettingsView />
           </div>
         )}
 
         {isFileExplorerOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right duration-300">
+          <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
             <FileExplorer />
           </div>
         )}

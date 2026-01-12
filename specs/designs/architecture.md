@@ -45,7 +45,7 @@ src/
 │   ├── chat/             # チャット機能 (Message list, Input area)
 │   ├── assistants/       # アシスタント管理
 │   ├── prompts/          # プロンプト管理
-│   ├── mcp/              # MCPサーバー設定・ツール管理
+│   ├── mcp/              # MCPサーバ設定・ツール管理
 │   └── settings/         # アプリ全体設定
 ├── lib/                  # 外部ライブラリのラッパー・設定 (dexie, axios, etc)
 ├── services/             # 外部通信・ビジネスロジックのコア
@@ -87,7 +87,7 @@ MCP 仕様に基づき、ブラウザから直接接続可能なプロトコル�
 
 ### 3.3 非同期処理と状態同期
 
-- **TanStack Query** を全面的に採用し、DB からのデータ取得、LLM API の状態、MCP サーバーの接続状態を管理する。
+- **TanStack Query** を全面的に採用し、DB からのデータ取得、LLM API の状態、MCP サーバの接続状態を管理する。
 - ストリーミングレスポンスは、Zustand ストアまたは React Context 内の Ref を通じて UI に逐次反映させる（再レンダリング最適化のため）。
 
 ## 4. ウィンドウ管理 (Window Management)

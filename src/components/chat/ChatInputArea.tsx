@@ -80,7 +80,7 @@ export function ChatInputArea({
 
   return (
     <div
-      className={`flex items-end gap-1.5 w-full glass glass-strong rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-all shadow-sm border bg-background/50 ${selectedFiles.length > 0 ? 'rounded-t-none border-t-0' : ''}`}
+      className={`flex items-end gap-1.5 w-full bg-background/60 backdrop-blur-lg rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-all shadow-sm border ${selectedFiles.length > 0 ? 'rounded-t-none border-t-0' : ''}`}
     >
       <input
         type="file"
@@ -112,9 +112,9 @@ export function ChatInputArea({
                 <button
                   type="button"
                   onClick={() => handleRemoveFile(index)}
-                  className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                  className="absolute -top-1 -right-1 bg-destructive rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                 >
-                  <X className="w-3 h-3 text-white" />
+                  <X className="w-3 h-3 text-destructive-foreground" />
                 </button>
               </div>
             ))}
@@ -134,7 +134,7 @@ export function ChatInputArea({
           <textarea
             ref={textareaRef}
             rows={1}
-            className="flex-1 bg-transparent border-none outline-none py-2 px-2 placeholder:text-muted-foreground/50 text-sm min-w-0 resize-none scrollbar-hide input-primary shadow-none bg-transparent focus:ring-0 leading-normal text-foreground"
+            className="flex-1 bg-transparent border-none outline-none py-2 px-2 placeholder:text-muted-foreground/50 text-sm min-w-0 resize-none [scrollbar-width:none] focus:ring-0 leading-normal text-foreground"
             placeholder={placeholderText}
             value={inputText}
             onChange={handleInputChange}

@@ -42,6 +42,11 @@ interface AppState {
 
   titleGenerationModel: string;
   setTitleGenerationModel: (modelId: string) => void;
+
+  // Tool Settings
+  enabledTools: Record<string, boolean>; // toolId -> boolean
+  setToolEnabled: (toolId: string, enabled: boolean) => void;
+  removeToolsByServerName: (serverName: string) => void;
 }
 
 // Zustandを使用したストアの実装本体
@@ -105,6 +110,26 @@ export const useAppStore = create<AppState>()(
 
       titleGenerationModel: '',
       setTitleGenerationModel: (modelId) => set({ titleGenerationModel: modelId }),
+
+      // Tool Settings
+      enabledTools: {}, // Default empty means all enabled (or logic handles undefined as enabled)
+      setToolEnabled: (toolId, enabled) =>
+        set((state) => ({
+          enabledTools: { ...state.enabledTools, [toolId]: enabled },
+        })),
+      removeToolsByServerName: (serverName) =>
+        set((state) => {
+          const prefix = `${serverName}__`;
+          const newEnabledTools = { ...state.enabledTools };
+          let changed = false;
+          for (const key in newEnabledTools) {
+            if (key.startsWith(prefix)) {
+              delete newEnabledTools[key];
+              changed = true;
+            }
+          }
+          return changed ? { enabledTools: newEnabledTools } : state;
+        }),
     }),
     {
       name: 'aichat-app-storage',
@@ -115,6 +140,7 @@ export const useAppStore = create<AppState>()(
         autoGenerateTitle: state.autoGenerateTitle,
         titleGenerationProvider: state.titleGenerationProvider,
         titleGenerationModel: state.titleGenerationModel,
+        enabledTools: state.enabledTools,
       }),
     },
   ),

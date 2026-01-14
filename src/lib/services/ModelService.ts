@@ -223,19 +223,13 @@ export async function createResponseApi(options: {
 }
 
 /**
- * 利用可能なモデル一覧を取得する
- * プロバイダー設定、DBの手動登録、設定マージを行う
- * @param targetProvider オプション: 特定のプロバイダーのモデルを取得する場合に指定
+ * 特定のプロバイダーのモデルリストを取得する内部関数
  */
-export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]> {
-  const provider = targetProvider || (await getActiveProvider());
-  if (!provider) return [];
-
+async function fetchModelsForProvider(provider: Provider): Promise<ModelInfo[]> {
   const providerIdStr = provider.id?.toString() || '';
-
-  // 1. APIからモデル一覧取得
   let apiModels: { id: string; object: string }[] = [];
 
+  // 1. APIからモデル一覧取得
   try {
     if (provider.type === 'google') {
       // Google GenAI API (HTTP request)
@@ -276,20 +270,19 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
   const configMap = new Map(configs.map((c) => [c.modelId, c]));
 
   // 手動モデルのIDセットを作成（APIモデルの除外に使用）
-  // ManualModelのUUIDがAPIモデルIDと同じ場合、そのManualModelはAPIモデルの「オーバーライド」として機能する
   const manualModelIds = new Set(manualModels.map((m) => m.uuid));
 
   // 4. リスト構築
   const startOrder = 1000;
   const models: ModelInfo[] = [];
 
-  // APIモデルの追加 (ManualModelでオーバーライドされているものは除外)
+  // APIモデルの追加
   apiModels.forEach((m, index) => {
     if (manualModelIds.has(m.id)) return; // オーバーライドされているためスキップ
 
     const config = configMap.get(m.id);
     models.push({
-      id: m.id, // APIモデルはそのままのID
+      id: m.id,
       targetModelId: m.id,
       name: m.id,
       provider: provider.name,
@@ -306,19 +299,14 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
     });
   });
 
-  // 手動モデルの追加 (オーバーライド含む)
+  // 手動モデルの追加
   manualModels.forEach((m) => {
-    // NOTE: DBのModelConfigは `providerId + modelId` がキー。
-    // ManualModelの場合、この `modelId` カラムに `uuid` を入れて保存することにする。
-
-    const config = configMap.get(m.uuid); // Configはuuidで引く
-
-    // APIモデルリストに存在するか確認（オーバーライド判定）
+    const config = configMap.get(m.uuid);
     const isOverride = apiModels.some((am) => am.id === m.uuid);
 
     models.push({
-      id: m.uuid, // UUIDを使用
-      targetModelId: m.modelId, // 実API ID
+      id: m.uuid,
+      targetModelId: m.modelId,
       name: m.name,
       provider: provider.name,
       providerId: providerIdStr,
@@ -328,12 +316,11 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
       inputCostPer1k: m.inputCostPer1k,
       outputCostPer1k: m.outputCostPer1k,
       canStream: true,
-      // 設定値優先順位: Config > ManualModel > Default
       enableStream: config?.enableStream ?? m.enableStream ?? true,
       isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
       order: config?.order ?? startOrder + apiModels.length + 500,
       isCustom: false,
-      isManual: true, // オーバーライドでも編集可能なManual扱いとする
+      isManual: true,
       isApiOverride: isOverride,
       supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
       supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
@@ -341,6 +328,48 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
     });
   });
 
+  return models;
+}
+
+/**
+ * 利用可能なモデル一覧を取得する
+ * プロバイダー設定、DBの手動登録、設定マージを行う
+ * targetProvider指定時はそのプロバイダーのみ、未指定時は全有効プロバイダーを取得
+ */
+export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]> {
+  let providers: Provider[] = [];
+
+  if (targetProvider) {
+    if (targetProvider.isActive) {
+      providers = [targetProvider];
+    }
+  } else {
+    // 全有効プロバイダーを取得
+    providers = await db.providers.filter((p) => !!p.isActive).toArray();
+  }
+
+  if (providers.length === 0) return [];
+
+  // 並列で各プロバイダーのモデルを取得
+  const results = await Promise.allSettled(providers.map((p) => fetchModelsForProvider(p)));
+
+  let allModels: ModelInfo[] = [];
+
+  results.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      allModels = [...allModels, ...result.value];
+    } else {
+      console.error('Provider model fetch failed:', result.reason);
+    }
+  });
+
   // ソートして返す
-  return models.sort((a, b) => a.order - b.order);
+  return allModels.sort((a, b) => {
+    // まずOrder順
+    if (a.order !== b.order) return a.order - b.order;
+    // 同じOrderならプロバイダー順
+    if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
+    // 最後は名前順
+    return a.name.localeCompare(b.name);
+  });
 }

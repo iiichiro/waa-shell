@@ -21,7 +21,8 @@ interface AppState {
   setCommandManagerOpen: (isOpen: boolean) => void;
 
   isFileExplorerOpen: boolean;
-  setFileExplorerOpen: (isOpen: boolean) => void;
+  fileExplorerThreadId: number | null; // nullなら全ファイル、数値なら特定スレッド
+  setFileExplorerOpen: (isOpen: boolean, threadId?: number | null) => void;
 
   isThreadSettingsOpen: boolean;
   setThreadSettingsOpen: (isOpen: boolean) => void;
@@ -70,6 +71,7 @@ export const useAppStore = create<AppState>()(
       isSettingsOpen: false,
       isCommandManagerOpen: false,
       isFileExplorerOpen: false,
+      fileExplorerThreadId: null,
 
       setSettingsOpen: (isOpen) =>
         set((state) => ({
@@ -85,9 +87,10 @@ export const useAppStore = create<AppState>()(
           isFileExplorerOpen: isOpen ? false : state.isFileExplorerOpen,
         })),
 
-      setFileExplorerOpen: (isOpen) =>
+      setFileExplorerOpen: (isOpen, threadId = null) =>
         set((state) => ({
           isFileExplorerOpen: isOpen,
+          fileExplorerThreadId: threadId,
           isSettingsOpen: isOpen ? false : state.isSettingsOpen,
           isCommandManagerOpen: isOpen ? false : state.isCommandManagerOpen,
         })),

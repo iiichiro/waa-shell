@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Plus, Save, Trash2, Zap } from 'lucide-react';
 import { useState } from 'react';
 import type { SlashCommand } from '../../lib/db';
 import {
@@ -87,6 +87,7 @@ export function CommandManager() {
     >
       <CommonHeader
         title="コマンド管理"
+        icon={Zap}
         onClose={() => useAppStore.getState().setCommandManagerOpen(false)}
       >
         <button

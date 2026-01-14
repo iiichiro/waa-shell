@@ -1,4 +1,4 @@
-import { Bot, Globe, Network, Settings as SettingsIcon, Sliders, Wrench } from 'lucide-react';
+import { Bot, FileCode, Globe, Network, Sliders, Wrench, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { CommandManager } from '../command/CommandManager';
@@ -24,12 +24,8 @@ export function SettingsView() {
       className="flex flex-col bg-background h-full animate-in fade-in zoom-in-95"
       data-testid="header-settings"
     >
-      <CommonHeader
-        title="設定"
-        icon={SettingsIcon}
-        onClose={() => useAppStore.getState().setSettingsOpen(false)}
-      >
-        <nav className="flex items-center gap-0.5">
+      <CommonHeader title="" onClose={() => useAppStore.getState().setSettingsOpen(false)}>
+        <nav className="flex items-center">
           {[
             { id: 'general', label: '一般', icon: Sliders },
             { id: 'provider', label: 'プロバイダー', icon: Globe },
@@ -38,8 +34,8 @@ export function SettingsView() {
             { id: 'mcp', label: 'MCP', icon: Network },
             ...(isLauncher
               ? [
-                  { id: 'commands', label: 'コマンド', icon: SettingsIcon },
-                  { id: 'files', label: 'ファイル', icon: Globe },
+                  { id: 'commands', label: 'コマンド', icon: Zap },
+                  { id: 'files', label: 'ファイル', icon: FileCode },
                 ]
               : []),
           ].map((tab) => {

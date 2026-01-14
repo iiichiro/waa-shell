@@ -8,6 +8,7 @@ import {
   Square,
   Trash2,
   X,
+  Zap,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { Thread } from '../../lib/db';
@@ -288,7 +289,7 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
             aria-label="コマンド管理"
             data-testid="nav-command-manager"
           >
-            <Plus className="w-4 h-4" />
+            <Zap className="w-4 h-4" />
             <span>コマンド管理</span>
           </button>
           <button

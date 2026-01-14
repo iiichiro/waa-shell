@@ -1,3 +1,20 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown,
@@ -6,6 +23,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  GripVertical,
   Pencil,
   Plus,
   RefreshCw,
@@ -23,11 +41,18 @@ import { listModels, type ModelInfo } from '../../lib/services/ModelService';
 export function ModelSettings() {
   const queryClient = useQueryClient();
 
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
   // State
   // Initialize with empty string, will be set to active provider in useEffect
   const [targetProviderId, setTargetProviderId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('enabled');
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
   const [isManualModalOpen, setManualModalOpen] = useState(false);
 
@@ -105,25 +130,30 @@ export function ModelSettings() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models'] }),
   });
 
-  // 2. 並び替え (Order更新)
-  const reorderMutation = useMutation({
-    mutationFn: async ({ model, newOrder }: { model: ModelInfo; newOrder: number }) => {
-      // model.id (UUID or API ID) をキーにConfigを保存
-      const config = await db.modelConfigs
-        .where('[providerId+modelId]')
-        .equals([model.providerId, model.id])
-        .first();
+  // 2. 並び替え (Bulk)
 
-      const baseConfig = config || {
-        providerId: model.providerId,
-        modelId: model.id,
-        enableStream: model.enableStream,
-        isEnabled: model.isEnabled,
-      };
+  const bulkReorderMutation = useMutation({
+    mutationFn: async (updatedModels: ModelInfo[]) => {
+      await db.transaction('rw', db.modelConfigs, async () => {
+        for (let i = 0; i < updatedModels.length; i++) {
+          const m = updatedModels[i];
+          const config = await db.modelConfigs
+            .where('[providerId+modelId]')
+            .equals([m.providerId, m.id])
+            .first();
 
-      await db.modelConfigs.put({ ...baseConfig, order: newOrder });
+          const baseConfig = config || {
+            providerId: m.providerId,
+            modelId: m.id,
+            enableStream: m.enableStream,
+            isEnabled: m.isEnabled,
+          };
+
+          await db.modelConfigs.put({ ...baseConfig, order: i });
+        }
+      });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models', targetProviderId] }),
   });
 
   // 3. 一括操作 (有効化/無効化)
@@ -244,15 +274,25 @@ export function ModelSettings() {
   // ハンドラ
   const handleSwapOrder = async (index: number, direction: 'up' | 'down') => {
     if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === models.length - 1) return;
+    if (direction === 'down' && index === filteredModels.length - 1) return;
 
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const modelA = models[index];
-    const modelB = models[targetIndex];
+    const newModels = [...filteredModels];
+    const [moved] = newModels.splice(index, 1);
+    newModels.splice(targetIndex, 0, moved);
 
-    // 単純にorder値を入れ替える
-    await reorderMutation.mutateAsync({ model: modelA, newOrder: modelB.order });
-    await reorderMutation.mutateAsync({ model: modelB, newOrder: modelA.order });
+    bulkReorderMutation.mutate(newModels);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = filteredModels.findIndex((m) => m.id === active.id);
+    const newIndex = filteredModels.findIndex((m) => m.id === over.id);
+
+    const newModels = arrayMove(filteredModels, oldIndex, newIndex);
+    bulkReorderMutation.mutate(newModels);
   };
 
   const filteredModels = useMemo(() => {
@@ -480,184 +520,77 @@ export function ModelSettings() {
 
       {/* モデルリスト */}
       <div className="flex-1 overflow-y-auto border rounded-md bg-muted/20 custom-scrollbar">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
-            <tr>
-              <th className="p-3 w-10 text-center">
-                <button
-                  type="button"
-                  onClick={selectAll}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {selectedModelIds.size === filteredModels.length && filteredModels.length > 0 ? (
-                    <CheckSquare className="w-4 h-4" />
-                  ) : (
-                    <Square className="w-4 h-4" />
-                  )}
-                </button>
-              </th>
-              <th className="p-3 text-xs font-bold text-muted-foreground uppercase">
-                モデル名 / ID
-              </th>
-              <th className="p-3 text-xs font-bold text-muted-foreground uppercase">タイプ</th>
-              <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-24 text-center">
-                状態
-              </th>
-              <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-32 text-center">
-                並び順
-              </th>
-              <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-28 text-center">
-                操作
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filteredModels.map((model, index) => (
-              <tr
-                key={model.id}
-                className={`hover:bg-muted/50 transition-colors ${!model.isEnabled ? 'opacity-60 grayscale-[0.5]' : ''}`}
-              >
-                <td className="p-3 text-center">
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
+              <tr>
+                <th className="p-3 w-10 text-center">
                   <button
                     type="button"
-                    onClick={() => toggleSelection(model.id)}
-                    className={`transition-colors ${selectedModelIds.has(model.id) ? 'text-primary' : 'text-muted-foreground'}`}
+                    onClick={selectAll}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    {selectedModelIds.has(model.id) ? (
+                    {selectedModelIds.size === filteredModels.length &&
+                    filteredModels.length > 0 ? (
                       <CheckSquare className="w-4 h-4" />
                     ) : (
                       <Square className="w-4 h-4" />
                     )}
                   </button>
-                </td>
-                <td className="p-3">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{model.name}</span>
-                    <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
-                      {/* Manualの場合 UUIDではなくTargetIDを表示すべきか？それとも識別のためUUIDも見せる？ */}
-                      {/* ユーザーにはAPI Model IDが見えたほうが便利 */}
-                      {model.isManual ? (
-                        <>
-                          <span className="text-primary/70">{model.targetModelId}</span>
-                          <span className="opacity-50 text-[10px]">(Alias)</span>
-                        </>
-                      ) : (
-                        model.id
-                      )}
-                    </span>
-                    {model.protocol === 'response_api' && (
-                      <span className="ml-1 px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 text-[10px] border border-orange-500/20">
-                        Response API
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="p-3">
-                  {model.isManual ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
-                      Manual
-                    </span>
-                  ) : model.isCustom ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      Custom
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                      API
-                    </span>
-                  )}
-                </td>
-                <td className="p-3 text-center">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toggleEnabledMutation.mutate({ model, isEnabled: !model.isEnabled })
+                </th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">
+                  モデル名 / ID
+                </th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">タイプ</th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-24 text-center">
+                  状態
+                </th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-32 text-center">
+                  並び順
+                </th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-28 text-center">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <SortableContext
+                items={filteredModels.map((m) => m.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {filteredModels.map((model, index) => (
+                  <SortableRow
+                    key={model.id}
+                    model={model}
+                    index={index}
+                    isSelected={selectedModelIds.has(model.id)}
+                    isLast={index === filteredModels.length - 1}
+                    onToggleEnabled={(isEnabled) =>
+                      toggleEnabledMutation.mutate({ model, isEnabled })
                     }
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                      model.isEnabled
-                        ? 'bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20'
-                        : 'bg-muted text-muted-foreground border hover:bg-accent'
-                    }`}
-                  >
-                    {model.isEnabled ? '有効' : '無効'}
-                  </button>
-                </td>
-                <td className="p-3">
-                  <div className="flex items-center justify-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleSwapOrder(index, 'up')}
-                      disabled={index === 0}
-                      className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSwapOrder(index, 'down')}
-                      disabled={index === filteredModels.length - 1}
-                      className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
-                    >
-                      <ArrowDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
-                <td className="p-3 text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    {/* Copy Button (All Models) */}
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(model)}
-                      className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
-                      title="複製して新規作成"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Edit Button (All Models) */}
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(model)}
-                      className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
-                      title={model.isManual ? '編集' : '設定をカスタマイズ'}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Delete / Reset Button */}
-                    {model.isManual && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const message = model.isApiOverride
-                            ? 'カスタマイズ設定を削除し、デフォルトに戻しますか？'
-                            : 'このモデルを削除しますか？';
-                          if (confirm(message)) deleteManualModelMutation.mutate(model);
-                        }}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          model.isApiOverride
-                            ? 'hover:bg-orange-500/10 text-orange-400'
-                            : 'hover:bg-destructive/10 text-destructive'
-                        }`}
-                        title={model.isApiOverride ? 'デフォルトに戻す' : '削除'}
-                      >
-                        {/* Overrideの場合は「元に戻す」アイコン的なものが良いが、Trashでも通じる */}
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {filteredModels.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                  モデルが見つかりません
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                    onToggleSelection={() => toggleSelection(model.id)}
+                    onSwapOrder={(dir) => handleSwapOrder(index, dir)}
+                    onCopy={() => handleCopy(model)}
+                    onEdit={() => handleEdit(model)}
+                    onDelete={() => {
+                      const message = model.isApiOverride
+                        ? 'カスタマイズ設定を削除し、デフォルトに戻しますか？'
+                        : 'このモデルを削除しますか？';
+                      if (confirm(message)) deleteManualModelMutation.mutate(model);
+                    }}
+                  />
+                ))}
+              </SortableContext>
+              {filteredModels.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                    モデルが見つかりません
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </DndContext>
       </div>
 
       {/* マニュアルモデル登録モーダル */}
@@ -1005,5 +938,175 @@ export function ModelSettings() {
           document.body,
         )}
     </div>
+  );
+}
+
+interface SortableRowProps {
+  model: ModelInfo;
+  index: number;
+  isSelected: boolean;
+  isLast: boolean;
+  onToggleEnabled: (isEnabled: boolean) => void;
+  onToggleSelection: () => void;
+  onSwapOrder: (dir: 'up' | 'down') => void;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function SortableRow({
+  model,
+  index,
+  isSelected,
+  isLast,
+  onToggleEnabled,
+  onToggleSelection,
+  onSwapOrder,
+  onCopy,
+  onEdit,
+  onDelete,
+}: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: model.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    position: (isDragging ? 'relative' : 'static') as 'relative' | 'static',
+  };
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={`hover:bg-muted/50 transition-colors ${!model.isEnabled ? 'opacity-60 grayscale-[0.5]' : ''} ${isDragging ? 'bg-accent/50 shadow-lg' : ''}`}
+    >
+      <td className="p-3 text-center">
+        <div className="flex items-center gap-2">
+          {/* Handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors"
+            title="ドラッグして移動"
+          >
+            <GripVertical className="w-4 h-4" />
+          </div>
+          <button
+            type="button"
+            onClick={onToggleSelection}
+            className={`transition-colors ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+          </button>
+        </div>
+      </td>
+      <td className="p-3">
+        <div className="flex flex-col">
+          <span className="font-medium text-foreground">{model.name}</span>
+          <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
+            {model.isManual ? (
+              <>
+                <span className="text-primary/70">{model.targetModelId}</span>
+                <span className="opacity-50 text-[10px]">(Alias)</span>
+              </>
+            ) : (
+              model.id
+            )}
+          </span>
+          {model.protocol === 'response_api' && (
+            <span className="w-fit ml-0 mt-1 px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 text-[10px] border border-orange-500/20">
+              Response API
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="p-3">
+        {model.isManual ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
+            Manual
+          </span>
+        ) : model.isCustom ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            Custom
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            API
+          </span>
+        )}
+      </td>
+      <td className="p-3 text-center">
+        <button
+          type="button"
+          onClick={() => onToggleEnabled(!model.isEnabled)}
+          className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            model.isEnabled
+              ? 'bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20'
+              : 'bg-muted text-muted-foreground border hover:bg-accent'
+          }`}
+        >
+          {model.isEnabled ? '有効' : '無効'}
+        </button>
+      </td>
+      <td className="p-3">
+        <div className="flex items-center justify-center gap-1">
+          <button
+            type="button"
+            onClick={() => onSwapOrder('up')}
+            disabled={index === 0}
+            className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onSwapOrder('down')}
+            disabled={isLast}
+            className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
+          >
+            <ArrowDown className="w-4 h-4" />
+          </button>
+        </div>
+      </td>
+      <td className="p-3 text-center">
+        <div className="flex items-center justify-center gap-1">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
+            title="複製して新規作成"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onEdit}
+            className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
+            title={model.isManual ? '編集' : '設定をカスタマイズ'}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+
+          {model.isManual && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className={`p-1.5 rounded-lg transition-colors ${
+                model.isApiOverride
+                  ? 'hover:bg-orange-500/10 text-orange-400'
+                  : 'hover:bg-destructive/10 text-destructive'
+              }`}
+              title={model.isApiOverride ? 'デフォルトに戻す' : '削除'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }

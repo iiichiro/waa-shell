@@ -6,18 +6,22 @@ import { deleteFile, listFiles } from '../../lib/services/FileService';
 import { useAppStore } from '../../store/useAppStore';
 import { CommonHeader } from '../layout/CommonHeader';
 
+interface FileExplorerProps {
+  threadId?: number | null;
+}
+
 /**
  * ファイル管理画面：保存されたファイルアセットの閲覧・削除・検索
  */
-export function FileExplorer() {
+export function FileExplorer({ threadId }: FileExplorerProps) {
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const { setActiveThreadId, setFileExplorerOpen, isLauncher } = useAppStore();
 
   const { data: files = [], isLoading } = useQuery({
-    queryKey: ['files'],
-    queryFn: () => listFiles(),
+    queryKey: ['files', threadId],
+    queryFn: () => listFiles(threadId ? { threadId } : undefined),
   });
 
   const deleteMutation = useMutation({
@@ -43,7 +47,10 @@ export function FileExplorer() {
       data-testid="header-file-explorer"
     >
       {/* ヘッダー */}
-      <CommonHeader title="ファイル管理" onClose={() => setFileExplorerOpen(false)}>
+      <CommonHeader
+        title={threadId ? 'スレッドのファイル' : 'ファイル管理'}
+        onClose={() => setFileExplorerOpen(false)}
+      >
         <div className={`relative ${isLauncher ? 'w-48' : 'w-64'}`}>
           <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -108,7 +115,7 @@ export function FileExplorer() {
         ) : filteredFiles.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-50">
             <Search className="w-12 h-12" />
-            <p>ファイルが見つかりません</p>
+            <p>{threadId ? 'このスレッドにはファイルがありません' : 'ファイルが見つかりません'}</p>
           </div>
         ) : viewMode === 'grid' ? (
           <div

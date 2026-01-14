@@ -70,3 +70,32 @@ function blobToImage(blob: Blob): Promise<HTMLImageElement> {
     img.src = URL.createObjectURL(blob);
   });
 }
+
+/**
+ * File または Blob を DataURL (Base64) に変換する
+ */
+export function blobToDataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * DataURL (Base64) を Blob に変換する（DB保存用）
+ */
+export function dataURLToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(';base64,');
+  const contentType = parts[0].split(':')[1];
+  const raw = window.atob(parts[1]);
+  const rawLength = raw.length;
+  const uInt8Array = new Uint8Array(rawLength);
+
+  for (let i = 0; i < rawLength; ++i) {
+    uInt8Array[i] = raw.charCodeAt(i);
+  }
+
+  return new Blob([uInt8Array], { type: contentType });
+}

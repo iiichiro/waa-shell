@@ -7,7 +7,9 @@ import type {
 } from 'openai/resources/chat/completions';
 import { db, type Message } from '../db';
 import { getActivePathMessages } from '../db/threads';
+import { dataURLToBlob } from '../utils/image';
 import { fileToBase64 } from './FileService';
+
 import {
   chatCompletion,
   createResponseApi,
@@ -28,8 +30,9 @@ interface ExtendedChatCompletionMessage {
 }
 
 interface ExtendedChatCompletionDelta {
-  content?: string | null;
+  content?: string | null | unknown[];
   reasoning_content?: string;
+  image_url?: { url: string };
   tool_calls?: unknown[];
 }
 
@@ -385,6 +388,10 @@ export async function sendMessage(
         };
 
         const finalId = await db.messages.add(assistantMessage);
+
+        // AI応答から画像を抽出して保存 (Response APIの場合も outputItems から抽出)
+        await extractAndSaveImages(threadId, finalId, outputItems);
+
         await db.threads.update(threadId, { activeLeafId: finalId });
         assistantMessage.id = finalId;
         return assistantMessage;
@@ -496,6 +503,17 @@ export async function sendMessage(
         createdAt: new Date(),
       };
       const finalId = await db.messages.add(assistantMessage);
+
+      // AI応答から画像を抽出して保存
+      if (message.content) {
+        // Chat Completion の場合は message.content が文字列か parts の可能性がある
+        const contentParts =
+          typeof message.content === 'string'
+            ? [{ type: 'text' as const, text: message.content }]
+            : (message.content as ChatCompletionContentPart[]);
+        await extractAndSaveImages(threadId, finalId, contentParts);
+      }
+
       await db.threads.update(threadId, { activeLeafId: finalId });
       assistantMessage.id = finalId;
       return assistantMessage;
@@ -530,6 +548,7 @@ async function* handleStreamResponse(
   const toolCallsMap: Record<number, any> = {};
   let isToolCall = false;
   let currentParentId = parentId;
+  const accumulatedImages: ChatCompletionContentPart[] = [];
 
   for await (const chunk of stream) {
     const choice = chunk.choices[0];
@@ -537,7 +556,38 @@ async function* handleStreamResponse(
 
     const deltaAny = choice.delta as ExtendedChatCompletionDelta;
     if (deltaAny.content) {
-      fullContent += deltaAny.content;
+      if (typeof deltaAny.content === 'string') {
+        fullContent += deltaAny.content;
+      } else if (Array.isArray(deltaAny.content)) {
+        // コンテンツパーツが配列で来る場合
+        for (const part of deltaAny.content as (
+          | string
+          | { type: string; text?: string; image_url?: { url: string } }
+        )[]) {
+          if (typeof part === 'string') {
+            fullContent += part;
+          } else if (part.type === 'text' && part.text) {
+            fullContent += part.text;
+          } else if (part.type === 'image_url' && part.image_url) {
+            console.log(
+              'Image URL part found in delta array:',
+              `${part.image_url.url.substring(0, 50)}...`,
+            );
+            accumulatedImages.push({ type: 'image_url', image_url: part.image_url });
+          } else {
+            console.log('Unknown content part in delta array:', part);
+          }
+        }
+      }
+    }
+
+    // トップレベルのimage_url対応
+    if (deltaAny.image_url) {
+      console.log(
+        'Top-level image_url found in delta:',
+        `${deltaAny.image_url.url.substring(0, 50)}...`,
+      );
+      accumulatedImages.push({ type: 'image_url', image_url: deltaAny.image_url });
     }
 
     if (deltaAny.reasoning_content) {
@@ -580,6 +630,11 @@ async function* handleStreamResponse(
     currentParentId = assistantId;
     await db.threads.update(threadId, { activeLeafId: assistantId });
 
+    // アシスタントメッセージに関連する画像を保存
+    if (accumulatedImages.length > 0) {
+      await extractAndSaveImages(threadId, assistantId, accumulatedImages);
+    }
+
     for (const toolCall of toolCalls) {
       let toolResult = '';
       try {
@@ -620,6 +675,12 @@ async function* handleStreamResponse(
       parentId: currentParentId,
       createdAt: new Date(),
     });
+
+    // アシスタントメッセージに関連する画像を保存
+    if (accumulatedImages.length > 0) {
+      await extractAndSaveImages(threadId, finalId, accumulatedImages);
+    }
+
     await db.threads.update(threadId, { activeLeafId: finalId });
   }
 }
@@ -708,7 +769,41 @@ export async function deleteMessageAndDescendants(threadId: number, messageId: n
  * メッセージの内容を更新する
  */
 export async function updateMessageContent(messageId: number, content: string) {
-  await db.messages.update(messageId, { content });
+  return updateMessageWithFiles(messageId, content);
+}
+
+/**
+ * メッセージの内容と添付ファイルを一括更新する
+ */
+export async function updateMessageWithFiles(
+  messageId: number,
+  content: string,
+  removedFileIds: number[] = [],
+  newFiles: File[] = [],
+) {
+  const message = await db.messages.get(messageId);
+  if (!message) return;
+
+  await db.transaction('rw', db.messages, db.files, async () => {
+    // 1. 本文の更新
+    await db.messages.update(messageId, { content });
+
+    // 2. ファイルの削除
+    if (removedFileIds.length > 0) {
+      await db.files.where('id').anyOf(removedFileIds).delete();
+    }
+
+    // 3. 新しいファイルの保存
+    if (newFiles.length > 0) {
+      const { saveFile } = await import('./FileService');
+      for (const file of newFiles) {
+        await saveFile(file, file.name, {
+          threadId: message.threadId,
+          messageId: messageId,
+        });
+      }
+    }
+  });
 }
 
 /**
@@ -778,5 +873,98 @@ export async function generateTitle(
   } catch (error) {
     console.error('Title generation failed:', error);
     // 失敗時は何もしない（デフォルトのタイトルなどが維持される）
+  }
+}
+
+/**
+ * AI応答から画像を抽出して保存する
+ */
+async function extractAndSaveImages(
+  threadId: number,
+  messageId: number,
+  content: (ChatCompletionContentPart | Record<string, unknown>)[],
+) {
+  if (!Array.isArray(content)) return;
+
+  console.log(`Extracting images for message ${messageId}, content parts: ${content.length}`);
+
+  for (const part of content) {
+    let imageUrl: string | undefined;
+    const fileName = `generated_${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+
+    // 型ガードを用いて各形式から安全に抽出
+    // OpenAI / OpenRouter標準の image_url 形式
+    if ('type' in part && part.type === 'image_url' && 'image_url' in part) {
+      const openAiPart = part as { image_url: { url: string } };
+      if (openAiPart.image_url?.url) {
+        imageUrl = openAiPart.image_url.url;
+      }
+    }
+    // Anthropic標準の image/source 形式
+    else if ('type' in part && part.type === 'image' && 'source' in part) {
+      const anthropicPart = part as { source: { data: string; media_type: string } };
+      if (anthropicPart.source?.data && anthropicPart.source?.media_type) {
+        imageUrl = `data:${anthropicPart.source.media_type};base64,${anthropicPart.source.data}`;
+      }
+    }
+    // Response API 等の特殊形式 (image_url プロパティが直接ある場合)
+    else if ('image_url' in part && part.image_url) {
+      const directPart = part as { image_url: string | { url: string } };
+      imageUrl =
+        typeof directPart.image_url === 'string' ? directPart.image_url : directPart.image_url.url;
+    }
+    // テキストパーツ内の Markdown 画像記法から Data URL を抽出
+    else if (
+      'type' in part &&
+      part.type === 'text' &&
+      'text' in part &&
+      typeof part.text === 'string'
+    ) {
+      const text = part.text;
+      const dataUrlRegex = /!\[.*?\]\((data:image\/[a-zA-Z+-]+;base64,[a-zA-Z0-9+/=]+)\)/g;
+      let match: RegExpExecArray | null;
+      while (true) {
+        match = dataUrlRegex.exec(text);
+        if (match === null) break;
+        await saveBase64Image(threadId, messageId, match[1], fileName);
+      }
+      continue;
+    }
+
+    if (imageUrl) {
+      if (imageUrl.startsWith('data:')) {
+        await saveBase64Image(threadId, messageId, imageUrl, fileName);
+      } else {
+        console.warn(
+          'External image URL (not data:) detected. Auto-saving is not supported for external URLs yet.',
+          imageUrl.substring(0, 50),
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Base64形式の画像をDBに保存する内部ヘルパー
+ */
+async function saveBase64Image(
+  threadId: number,
+  messageId: number,
+  dataUrl: string,
+  fileName: string,
+) {
+  try {
+    const { saveFile } = await import('./FileService');
+    console.log(`Saving assistant image from data URL (length: ${dataUrl.length})...`);
+    const blob = dataURLToBlob(dataUrl);
+    const fileId = await saveFile(blob, fileName, {
+      threadId,
+      messageId,
+      isGenerated: true,
+    });
+    console.log(`Assistant image successfully saved with ID: ${fileId}`);
+    return fileId;
+  } catch (e) {
+    console.error('Failed to save assistant image:', e);
   }
 }

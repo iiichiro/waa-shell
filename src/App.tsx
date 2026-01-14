@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Menu, Plus, Settings, Settings2, Wrench, X } from 'lucide-react';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { ChangeEvent, ClipboardEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChatInputArea } from './components/chat/ChatInputArea';
+import { ChatHeader } from './components/chat/ChatHeader';
+import { ChatInputArea, type SelectedFile } from './components/chat/ChatInputArea';
 import { ChatMessage } from './components/chat/ChatMessage';
-import { ModelCapabilityIndicators } from './components/chat/ModelCapabilityIndicators';
 import { ThreadSettingsModal } from './components/chat/ThreadSettingsModal';
 import { CommandManager } from './components/command/CommandManager';
 import { SlashCommandForm } from './components/command/SlashCommandForm';
@@ -22,10 +21,10 @@ import {
   generateTitle,
   sendMessage,
   switchBranch,
-  updateMessageContent,
+  updateMessageWithFiles,
 } from './lib/services/ChatService';
 import { listModels, type ModelInfo } from './lib/services/ModelService';
-import { getLocalTools } from './lib/services/ToolService';
+import { blobToDataURL } from './lib/utils/image';
 import { useAppStore } from './store/useAppStore';
 
 export default function App() {
@@ -40,6 +39,7 @@ export default function App() {
     isCommandManagerOpen,
     setCommandManagerOpen,
     isFileExplorerOpen,
+    fileExplorerThreadId,
     setFileExplorerOpen,
     isThreadSettingsOpen,
     setThreadSettingsOpen,
@@ -60,8 +60,9 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // モデル選択状態の管理
+
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
@@ -147,25 +148,6 @@ export default function App() {
     queryKey: ['providers'],
     queryFn: () => db.providers.toArray(),
   });
-
-  const activeProvider = providers.find((p) => p.isActive);
-
-  const handleProviderChange = useCallback(
-    async (providerIdStr: string) => {
-      if (!providerIdStr) return;
-      const providerId = Number(providerIdStr);
-      await db.transaction('rw', db.providers, async () => {
-        await db.providers.toCollection().modify({ isActive: false });
-        await db.providers.update(providerId, { isActive: true });
-      });
-      queryClient.invalidateQueries({ queryKey: ['providers'] });
-      queryClient.invalidateQueries({ queryKey: ['models'] });
-    },
-    [queryClient],
-  );
-
-  const manualModels = models.filter((m) => m.isManual || m.isCustom);
-  const apiModels = models.filter((m) => !m.isManual && !m.isCustom);
 
   const handleWindowClose = useCallback(async () => {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -317,7 +299,7 @@ export default function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: Auto-scroll trigger
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, activeThreadId]);
+  }, [messages, activeThreadId]);
 
   const handleTitleUpdate = async () => {
     if (activeThreadId && titleInput.trim()) {
@@ -347,10 +329,12 @@ export default function App() {
   const sendMutation = useMutation({
     mutationFn: async ({
       text,
+      attachments,
       parentId,
       isRegenerate = false,
     }: {
       text: string;
+      attachments: File[];
       parentId?: number | null;
       isRegenerate?: boolean;
     }) => {
@@ -395,9 +379,10 @@ export default function App() {
       try {
         const response = await sendMessage(threadId, text, targetModel, {
           stream: shouldStream,
-          // 再生成モードの場合は添付ファイル不要（既存ユーザーメッセージを起点にAI応答のみ生成）
-          attachments: isRegenerate ? [] : selectedFiles,
+          // 引数で渡された添付ファイルを使用（外部のselectedFiles状態に依存しない）
+          attachments: isRegenerate ? [] : attachments,
           parentId,
+
           onUserMessageSaved: async () => {
             // ユーザーメッセージが保存された直後のタイミングでUIを更新（AI応答待ちの間もメッセージを表示）
             await queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
@@ -462,6 +447,9 @@ export default function App() {
       try {
         const { LogicalSize } = await import('@tauri-apps/api/dpi');
         const appWindow = getCurrentWindow();
+        const currentSize = await appWindow.innerSize();
+        const factor = await appWindow.scaleFactor();
+        const currentLogicalSize = currentSize.toLogical(factor);
 
         // 履歴あり、またはストリーミング中、または送信中、または設定等のサブ画面が開いている場合は大きいウィンドウ
         const shouldExpand =
@@ -474,7 +462,7 @@ export default function App() {
           isFileExplorerOpen;
 
         if (shouldExpand) {
-          await appWindow.setSize(new LogicalSize(600, 600));
+          await appWindow.setSize(new LogicalSize(currentLogicalSize.width, 800));
         } else {
           // 履歴なし且つ入力待機中：コンパクトウィンドウ（テキスト行数に応じて高さ調整）
           const lineCount = (inputText.match(/\n/g) || []).length + 1;
@@ -482,7 +470,7 @@ export default function App() {
           const lineHeight = 20;
           const maxCompactHeight = 300;
           const height = Math.min(baseHeight + (lineCount - 1) * lineHeight, maxCompactHeight);
-          await appWindow.setSize(new LogicalSize(600, height));
+          await appWindow.setSize(new LogicalSize(currentLogicalSize.width, height));
         }
       } catch (e) {
         console.error('Failed to resize window:', e);
@@ -502,19 +490,32 @@ export default function App() {
     isFileExplorerOpen,
   ]);
 
-  const handleSend = (parentId?: number | null, overrideText?: string) => {
+  const handleSend = (
+    parentId?: number | null,
+    overrideText?: string,
+    overrideAttachments?: File[],
+  ) => {
     const textToSend = overrideText ?? inputText;
-    // 空文字でも overrideText が指定されている（再生成）か、ファイルがある場合は送信を許可
-    if (overrideText === undefined && !textToSend.trim() && selectedFiles.length === 0) return;
-    if (sendMutation.isPending) return;
+    const attachmentsToSend = overrideAttachments ?? selectedFiles.map((sf) => sf.file);
 
-    if (activeProvider?.requiresApiKey && !activeProvider.apiKey) {
-      alert('このプロバイダーを使用するにはAPIキーの設定が必要です。');
-      return;
-    }
+    // 空文字でも overrideText が指定されている（再生成）か、ファイルがある場合は送信を許可
+    if (overrideText === undefined && !textToSend.trim() && attachmentsToSend.length === 0) return;
+    if (sendMutation.isPending) return;
 
     const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
     const currentModel = models.find((m) => m.id === targetModelId);
+
+    if (currentModel) {
+      // 選択されたモデルのプロバイダーを確認
+      const provider = providers.find((p) => p.id?.toString() === currentModel.providerId);
+      if (provider?.requiresApiKey && !provider.apiKey) {
+        alert(
+          `プロバイダー「${provider.name}」を使用するにはAPIキーの設定が必要です。設定画面からAPIキーを入力してください。`,
+        );
+        return;
+      }
+    }
+
     if (currentModel && !currentModel.isEnabled) {
       alert(
         `モデル「${currentModel.name}」は無効化されているため送信できません。モデル設定から有効化するか、別のモデルを選択してください。`,
@@ -524,7 +525,11 @@ export default function App() {
 
     // 送信前にメッセージを空にする。
     // クエリのinvalidateはmutationFnの中で適切なIDに対して行うように変更
-    sendMutation.mutate({ text: textToSend, parentId });
+    sendMutation.mutate({
+      text: textToSend,
+      attachments: attachmentsToSend,
+      parentId,
+    });
     if (!overrideText) setInputText('');
     setSelectedFiles([]);
   };
@@ -567,19 +572,29 @@ export default function App() {
     }
   }, [activeThreadId, queryClient]);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSelectedFiles((prev) => [...prev, ...Array.from(e.target.files || [])]);
+  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles: SelectedFile[] = [];
+      for (const file of Array.from(e.target.files)) {
+        const preview = await blobToDataURL(file);
+        newFiles.push({ file, preview });
+      }
+      setSelectedFiles((prev) => [...prev, ...newFiles]);
     }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = async (e: ClipboardEvent<HTMLTextAreaElement>) => {
     if (e.clipboardData.files.length > 0) {
       e.preventDefault();
-      setSelectedFiles((prev) => [...prev, ...Array.from(e.clipboardData.files)]);
+      const newFiles: SelectedFile[] = [];
+      for (const file of Array.from(e.clipboardData.files)) {
+        const preview = await blobToDataURL(file);
+        newFiles.push({ file, preview });
+      }
+      setSelectedFiles((prev) => [...prev, ...newFiles]);
     }
   };
 
@@ -591,18 +606,20 @@ export default function App() {
     messageId: number,
     content: string,
     type: 'save' | 'regenerate' | 'branch',
+    removedFileIds: number[] = [],
+    newFiles: File[] = [],
   ) => {
     const message = await db.messages.get(messageId);
     if (!message) return;
 
     if (type === 'save') {
-      await updateMessageContent(messageId, content);
+      await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
       queryClient.invalidateQueries({ queryKey: ['messages', activeThreadId] });
       return;
     }
 
     if (type === 'regenerate') {
-      await updateMessageContent(messageId, content);
+      await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
       if (activeThreadId) {
         // 現在のメッセージより後のメッセージを削除
         const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
@@ -613,13 +630,20 @@ export default function App() {
           }
         }
         // 再生成
-        handleSend(messageId, '');
+        handleRegenerate(messageId, 'regenerate');
       }
       return;
     }
 
     // type === 'branch'
-    handleSend(message.parentId ?? null, content);
+    // 既存のファイルから削除対象を除外して File オブジェクトに変換
+    const existingFiles = await db.files.where('messageId').equals(messageId).toArray();
+    const keptFiles = existingFiles
+      .filter((f) => f.id !== undefined && !removedFileIds.includes(f.id))
+      .map((f) => new File([f.blob], f.fileName, { type: f.mimeType }));
+
+    // 既存の維持分と新規追加分を合わせて送信
+    handleSend(message.parentId ?? null, content, [...keptFiles, ...newFiles]);
   };
 
   const handleRegenerate = async (messageId: number, type: 'regenerate' | 'branch' = 'branch') => {
@@ -671,6 +695,7 @@ export default function App() {
     // isRegenerate=trueで呼び出すことで、添付ファイルなしで空文字送信（AI応答のみ生成）
     sendMutation.mutate({
       text: '',
+      attachments: [],
       parentId: parentIdForRegenerate,
       isRegenerate: true,
     });
@@ -727,299 +752,30 @@ export default function App() {
       )}
 
       <main className="flex-1 flex flex-col relative h-full w-full min-w-0 overflow-hidden">
-        <header
-          className={`${isLauncher ? 'h-11 px-3' : 'h-14 px-6'} border-b flex items-center justify-between bg-background/80 backdrop-blur-xl z-20 sticky top-0 ${isLauncher ? 'cursor-move select-none' : ''}`}
-          data-tauri-drag-region={isLauncher ? 'true' : undefined}
-        >
-          {/* Header Content (Remaining same for now) */}
-          <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0" data-tauri-drag-region>
-            {!isLauncher && (
-              <button
-                type="button"
-                className="p-2 -ml-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-                onClick={toggleSidebar}
-                title={isSidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く'}
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-            )}
-
-            {activeThreadId ? (
-              editingTitle ? (
-                <input
-                  value={titleInput}
-                  onChange={(e) => setTitleInput(e.target.value)}
-                  onBlur={handleTitleUpdate}
-                  onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate()}
-                  className="flex-1 bg-muted border rounded-lg px-3 py-1.5 text-sm font-semibold text-foreground outline-none focus:ring-2 focus:ring-ring min-w-0"
-                  // biome-ignore lint/a11y/noAutofocus: UX improvement
-                  autoFocus
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingTitle(true)}
-                  className={`font-bold text-foreground text-left cursor-text hover:bg-muted px-2 py-1 rounded-md truncate min-w-0 transition-colors ${isLauncher ? 'text-xs max-w-[120px]' : 'text-sm max-w-[200px] md:max-w-none'}`}
-                  title="クリックしてタイトルを編集"
-                >
-                  {activeThread?.title || 'チャット中'}
-                </button>
-              )
-            ) : null}
-            <div className="h-4 w-[1px] bg-border shrink-0 hidden md:block" />
-            <div className="flex items-center gap-2 shrink-0 ml-auto md:ml-0">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleNewChat}
-                  className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-all"
-                  title="新規チャット"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(true)}
-                  className="text-xs font-bold text-primary hover:underline px-2"
-                >
-                  <Settings className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Tool Toggle Menu */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsToolMenuOpen(!isToolMenuOpen)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    isToolMenuOpen
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                  title="ローカルツール"
-                >
-                  <Wrench className="w-5 h-5" />
-                </button>
-
-                {isToolMenuOpen && (
-                  <>
-                    <button
-                      type="button"
-                      className="fixed inset-0 z-30 cursor-default"
-                      onClick={() => setIsToolMenuOpen(false)}
-                      aria-label="メニューを閉じる"
-                    />
-                    <div className="absolute left-0 top-full mt-2 w-64 p-2 bg-muted/95 backdrop-blur-lg border rounded-lg shadow-lg z-40 animate-in fade-in zoom-in-95 duration-200">
-                      <div className="px-2 py-1.5 text-sm font-semibold text-foreground border-b mb-1">
-                        ツール設定
-                      </div>
-                      <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
-                        {getLocalTools().map((tool) => {
-                          const isEnabled = enabledTools[tool.id] !== false;
-                          return (
-                            <label
-                              key={tool.id}
-                              className="flex items-start gap-3 p-2 rounded hover:bg-accent cursor-pointer text-sm"
-                            >
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  role="switch"
-                                  aria-checked={isEnabled}
-                                  onClick={() => setToolEnabled(tool.id, !isEnabled)}
-                                  className={`w-7 h-4 rounded-full border transition-colors relative ${
-                                    isEnabled ? 'bg-primary' : 'bg-input'
-                                  }`}
-                                >
-                                  <span
-                                    className={`block w-2 h-2 rounded-full shadow-sm transition-transform absolute top-0.75 ${
-                                      isEnabled ? 'left-4 bg-background' : 'left-1 bg-primary'
-                                    }`}
-                                  />
-                                </button>
-                              </div>
-                              <span
-                                className={`flex-1 truncate ${
-                                  !isEnabled && 'text-muted-foreground line-through opacity-70'
-                                }`}
-                              >
-                                {tool.name}
-                              </span>
-                            </label>
-                          );
-                        })}
-                        {getLocalTools().length === 0 && (
-                          <div className="text-xs text-muted-foreground p-2 text-center">
-                            利用可能なツールはありません
-                          </div>
-                        )}
-                      </div>
-                      <div className="mt-2 text-center border-t pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSettingsOpen(true);
-                            setIsToolMenuOpen(false);
-                            // TODO: Navigate to tool tab automatically if possible
-                          }}
-                          className="text-xs text-primary hover:underline w-full py-1"
-                        >
-                          詳細設定を開く
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Provider Selector */}
-                {providers.length > 0 && (
-                  <div className="relative group">
-                    <select
-                      value={activeProvider?.id || ''}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      className={`appearance-none bg-muted hover:bg-muted/80 border rounded-lg pl-2 pr-6 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer max-w-[100px] md:max-w-[140px] truncate ${
-                        !activeProvider
-                          ? 'border-destructive text-destructive'
-                          : 'border-transparent hover:border-border/50 text-foreground'
-                      }`}
-                      title={
-                        !activeProvider ? 'プロバイダーが選択されていません' : 'プロバイダーを変更'
-                      }
-                    >
-                      {!activeProvider && <option value="">未設定</option>}
-                      {providers.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div
-                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${!activeProvider ? 'text-destructive' : 'text-muted-foreground group-hover:text-foreground'}`}
-                    >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-
-                {/* Model Selector */}
-                {(models.length > 0 || providers.length > 0) && (
-                  <div className="relative group">
-                    <select
-                      value={selectedModelId}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      className={`appearance-none bg-muted hover:bg-muted/80 border rounded-lg pl-2 pr-6 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer max-w-[120px] md:max-w-[180px] truncate ${
-                        models.find((m) => m.id === selectedModelId && !m.isEnabled)
-                          ? 'border-destructive text-destructive'
-                          : 'border-transparent hover:border-border/50 text-foreground'
-                      }`}
-                      title={`モデルを変更: ${selectedModelId}`}
-                      disabled={models.length === 0}
-                    >
-                      {models.length === 0 ? (
-                        <option>モデルなし</option>
-                      ) : (
-                        <>
-                          {manualModels.filter((m) => m.isEnabled || m.id === selectedModelId)
-                            .length > 0 && (
-                            <optgroup label="ユーザー定義">
-                              {manualModels
-                                .filter((m) => m.isEnabled || m.id === selectedModelId)
-                                .map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.name} {!m.isEnabled && '(無効)'}
-                                  </option>
-                                ))}
-                            </optgroup>
-                          )}
-                          {apiModels.filter((m) => m.isEnabled || m.id === selectedModelId).length >
-                            0 && (
-                            <optgroup label="APIモデル">
-                              {apiModels
-                                .filter((m) => m.isEnabled || m.id === selectedModelId)
-                                .map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.name} {!m.isEnabled && '(無効)'}
-                                  </option>
-                                ))}
-                            </optgroup>
-                          )}
-                        </>
-                      )}
-                    </select>
-                    <div
-                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
-                        models.find((m) => m.id === selectedModelId && !m.isEnabled)
-                          ? 'text-destructive'
-                          : 'text-muted-foreground group-hover:text-foreground'
-                      }`}
-                    >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-
-                {/* Capability Indicators */}
-                <ModelCapabilityIndicators model={models.find((m) => m.id === selectedModelId)} />
-
-                <button
-                  type="button"
-                  onClick={() => setThreadSettingsOpen(true)}
-                  className={`p-2 hover:bg-muted rounded-lg transition-all ${
-                    Object.keys(draftThreadSettings).length > 0 && !activeThreadId
-                      ? 'text-primary bg-primary/10'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                  title={
-                    !activeThreadId && Object.keys(draftThreadSettings).length > 0
-                      ? '新規チャット設定 (設定済み)'
-                      : 'スレッド設定'
-                  }
-                >
-                  <Settings2 className="w-5 h-5" />
-                </button>
-
-                {isLauncher && (
-                  <button
-                    type="button"
-                    onClick={handleWindowClose}
-                    className="p-2 -mr-2 rounded-lg text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                    title="ランチャーを閉じる"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </header>
+        <ChatHeader
+          isLauncher={isLauncher}
+          activeThreadId={activeThreadId}
+          activeThreadTitle={activeThread?.title}
+          isSidebarOpen={isSidebarOpen}
+          toggleSidebar={toggleSidebar}
+          onNewChat={handleNewChat}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenThreadSettings={() => setThreadSettingsOpen(true)}
+          onOpenFileExplorer={(tid) => setFileExplorerOpen(true, tid)}
+          onCloseLauncher={handleWindowClose}
+          models={models}
+          providers={providers}
+          selectedModelId={selectedModelId}
+          handleModelChange={handleModelChange}
+          editingTitle={editingTitle}
+          titleInput={titleInput}
+          setTitleInput={setTitleInput}
+          setEditingTitle={setEditingTitle}
+          handleTitleUpdate={handleTitleUpdate}
+          enabledTools={enabledTools}
+          setToolEnabled={setToolEnabled}
+          hasDraftSettings={Object.keys(draftThreadSettings).length > 0}
+        />
 
         <ThreadSettingsModal
           isOpen={isThreadSettingsOpen}
@@ -1160,7 +916,7 @@ export default function App() {
 
         {isFileExplorerOpen && (
           <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
-            <FileExplorer />
+            <FileExplorer threadId={fileExplorerThreadId} />
           </div>
         )}
       </main>
@@ -1189,9 +945,20 @@ function MessageItem({
     enabled: !!message.id,
   });
 
+  // メッセージに関連付けられた添付ファイルを取得
+  const { data: attachments } = useQuery({
+    queryKey: ['attachments', message.id],
+    queryFn: () => {
+      if (!message.id) return [];
+      return db.files.where('messageId').equals(message.id).toArray();
+    },
+    enabled: !!message.id,
+  });
+
   return (
     <ChatMessage
       message={message}
+      attachments={attachments}
       onCopy={onCopy}
       onEdit={onEdit}
       onRegenerate={onRegenerate}

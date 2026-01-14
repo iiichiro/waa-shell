@@ -2,14 +2,19 @@ import { Plus, Send, X } from 'lucide-react';
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent } from 'react';
 import { useEffect, useRef } from 'react';
 
+// ファイルとDataURLプレビューをセットで管理する型
+export interface SelectedFile {
+  file: File;
+  preview: string; // DataURL (Base64)
+}
+
 interface ChatInputAreaProps {
   inputText: string;
-  // setInputText削除
   handleSend: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   handleFileSelect: (e: ChangeEvent<HTMLInputElement>) => void;
   handleRemoveFile: (index: number) => void;
-  selectedFiles: File[];
+  selectedFiles: SelectedFile[];
   isLauncher: boolean;
   placeholderText: string;
   sendMutation: { isPending: boolean };
@@ -23,8 +28,8 @@ interface ChatInputAreaProps {
 
 export function ChatInputArea({
   inputText,
-  // setInputText削除
   handleSend,
+
   fileInputRef,
   handleFileSelect,
   handleRemoveFile,
@@ -94,18 +99,18 @@ export function ChatInputArea({
         {/* ファイルプレビュー */}
         {selectedFiles.length > 0 && (
           <div className="flex gap-2 p-2 overflow-x-auto custom-scrollbar">
-            {selectedFiles.map((file, index) => (
-              <div key={`${file.name}-${index}`} className="relative group shrink-0">
+            {selectedFiles.map((sf, index) => (
+              <div key={`${sf.file.name}-${index}`} className="relative group shrink-0">
                 <div className="w-16 h-16 rounded-lg bg-muted border flex items-center justify-center overflow-hidden">
-                  {file.type.startsWith('image/') ? (
+                  {sf.file.type.startsWith('image/') ? (
                     <img
-                      src={URL.createObjectURL(file)}
-                      alt={file.name}
+                      src={sf.preview}
+                      alt={sf.file.name}
                       className="w-full h-full object-cover"
                     />
                   ) : (
                     <span className="text-xs text-muted-foreground p-1 text-center break-all">
-                      {file.name.split('.').pop()}
+                      {sf.file.name.split('.').pop()}
                     </span>
                   )}
                 </div>
@@ -125,7 +130,7 @@ export function ChatInputArea({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 hover:bg-muted text-muted-foreground transition-all hover:text-foreground rounded-bl-lg shrink-0"
+            className="p-2 text-muted-foreground transition-all hover:text-foreground shrink-0 cursor-pointer"
             title="ファイルを添付"
           >
             <Plus className="w-5 h-5" />

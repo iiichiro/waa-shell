@@ -5,15 +5,19 @@ import {
   ChevronRight,
   Copy,
   Edit2,
+  Image as ImageIcon,
   Plus,
   RefreshCw,
   Terminal,
   User,
   Wrench,
+  X,
 } from 'lucide-react';
 import type OpenAI from 'openai';
-import { useState } from 'react';
-import type { Message } from '../../lib/db';
+import { type ChangeEvent, useEffect, useRef, useState } from 'react';
+import type { LocalFile, Message } from '../../lib/db';
+import { blobToDataURL } from '../../lib/utils/image';
+import { FilePreviewModal } from '../common/FilePreviewModal';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 const formatJson = (jsonStr: string) => {
@@ -25,12 +29,65 @@ const formatJson = (jsonStr: string) => {
   }
 };
 
+/**
+ * 画像添付ファイルをDataURLに変換して表示するコンポーネント
+ */
+function ImageAttachment({ file, onClick }: { file: LocalFile; onClick: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    blobToDataURL(file.blob).then((url) => {
+      if (isMounted) setDataUrl(url);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [file.blob]);
+
+  // 画像でないファイル
+  if (!file.mimeType.startsWith('image/')) {
+    return (
+      <div className="flex items-center gap-2 bg-muted border rounded-lg p-2 text-xs">
+        <span className="truncate max-w-[150px]">{file.fileName}</span>
+        <span className="text-muted-foreground">({(file.size / 1024).toFixed(1)}KB)</span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="relative group max-w-[300px] max-h-[300px] cursor-zoom-in block outline-none focus:ring-2 focus:ring-primary rounded-lg"
+      onClick={onClick}
+      aria-label={`${file.fileName} を拡大表示`}
+    >
+      {dataUrl ? (
+        <img
+          src={dataUrl}
+          alt={file.fileName}
+          className="rounded-lg border shadow-sm max-w-full max-h-[300px] object-contain brightness-95 hover:brightness-100 transition-all"
+        />
+      ) : (
+        <div className="w-[100px] h-[100px] bg-muted animate-pulse rounded-lg" />
+      )}
+    </button>
+  );
+}
+
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
   isThinking?: boolean;
+  attachments?: LocalFile[]; // メッセージに関連する添付ファイル
   onCopy: (content: string) => void;
-  onEdit?: (messageId: number, content: string, type: 'save' | 'regenerate' | 'branch') => void;
+  onEdit?: (
+    messageId: number,
+    content: string,
+    type: 'save' | 'regenerate' | 'branch',
+    removedFileIds?: number[],
+    newFiles?: File[],
+  ) => void;
   onRegenerate?: (messageId: number, type: 'regenerate' | 'branch') => void;
   branchInfo?: {
     current: number;
@@ -44,6 +101,7 @@ export function ChatMessage({
   message,
   isStreaming = false,
   isThinking = false,
+  attachments,
   onCopy,
   onEdit,
   onRegenerate,
@@ -54,13 +112,44 @@ export function ChatMessage({
   const [editContent, setEditContent] = useState(
     typeof message.content === 'string' ? message.content : '',
   );
+  const [removedFileIds, setRemovedFileIds] = useState<number[]>([]);
+  const [newFiles, setNewFiles] = useState<{ file: File; preview: string }[]>([]);
+  const [previewFile, setPreviewFile] = useState<LocalFile | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setRemovedFileIds([]);
+      setNewFiles([]);
+    }
+  }, [isEditing]);
 
   const isError = message.model === 'system';
 
   const handleEditSave = (type: 'save' | 'regenerate' | 'branch') => {
-    if (message.id && editContent.trim()) {
-      onEdit?.(message.id, editContent, type);
+    if (message.id && (editContent.trim() || attachments?.length || newFiles.length)) {
+      onEdit?.(
+        message.id,
+        editContent,
+        type,
+        removedFileIds,
+        newFiles.map((f) => f.file),
+      );
       setIsEditing(false);
+    }
+  };
+
+  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const added: { file: File; preview: string }[] = [];
+      for (const file of Array.from(e.target.files)) {
+        const preview = await blobToDataURL(file);
+        added.push({ file, preview });
+      }
+      setNewFiles((prev) => [...prev, ...added]);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -142,35 +231,106 @@ export function ChatMessage({
                 // biome-ignore lint/a11y/noAutofocus: Autofocus is preferred when entering edit mode
                 autoFocus
               />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 rounded-lg transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleEditSave('save')}
-                  className="px-3 py-1.5 text-xs border text-foreground rounded-lg hover:bg-muted transition-all font-medium"
-                >
-                  保存
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleEditSave('regenerate')}
-                  className="px-3 py-1.5 text-xs border border-primary/30 text-foreground rounded-lg hover:bg-primary/10 transition-all font-medium"
-                >
-                  保存して再生成（ブランチ無し）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleEditSave('branch')}
-                  className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all font-medium"
-                >
-                  保存して再生成（新規ブランチ）
-                </button>
+
+              {/* 編集時の添付ファイル管理 */}
+              <div className="space-y-3">
+                {/* 既存のファイル */}
+                {attachments &&
+                  attachments.filter((f) => f.id !== undefined && !removedFileIds.includes(f.id))
+                    .length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {attachments
+                        .filter((f) => f.id !== undefined && !removedFileIds.includes(f.id))
+                        .map((file) => (
+                          <div key={file.id} className="relative group/editfile">
+                            <ImageAttachment file={file} onClick={() => setPreviewFile(file)} />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (file.id !== undefined) {
+                                  setRemovedFileIds((prev) => [...prev, file.id as number]);
+                                }
+                              }}
+                              className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-lg opacity-0 group-hover/editfile:opacity-100 transition-opacity"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+
+                {/* 新規追加予定のファイル */}
+                {newFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {newFiles.map((nf, idx) => (
+                      <div key={`${nf.file.name}-${idx}`} className="relative group/newfile">
+                        <img
+                          src={nf.preview}
+                          alt="New preview"
+                          className="w-20 h-20 object-cover rounded-lg border shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-lg opacity-0 group-hover/newfile:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 rounded-lg transition-colors border border-dashed border-muted-foreground/30"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    画像を追記
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    multiple
+                    accept="image/*"
+                  />
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(false)}
+                      className="px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 rounded-lg transition-colors"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEditSave('save')}
+                      className="px-3 py-1.5 text-xs border text-foreground rounded-lg hover:bg-muted transition-all font-medium"
+                    >
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEditSave('regenerate')}
+                      className="px-3 py-1.5 text-xs border border-primary/30 text-foreground rounded-lg hover:bg-primary/10 transition-all font-medium"
+                    >
+                      保存して再生成（ブランチ無し）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEditSave('branch')}
+                      className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all font-medium"
+                    >
+                      保存して再生成（新規ブランチ）
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -267,9 +427,46 @@ export function ChatMessage({
                       </div>
                     </details>
                   ) : (
-                    <MarkdownRenderer
-                      content={typeof message.content === 'string' ? message.content : ''}
-                    />
+                    <div className="space-y-2">
+                      <MarkdownRenderer
+                        content={typeof message.content === 'string' ? message.content : ''}
+                      />
+                      {/* 添付ファイル（画像）の表示 - テキストの下に配置 */}
+                      {attachments && attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {attachments
+                            .filter((f) => f.mimeType.startsWith('image/'))
+                            .map((file) => (
+                              <ImageAttachment
+                                key={file.id}
+                                file={file}
+                                onClick={() => setPreviewFile(file)}
+                              />
+                            ))}
+                        </div>
+                      )}
+
+                      {/* その他のファイル (画像以外) */}
+                      {attachments?.some((f) => !f.mimeType.startsWith('image/')) && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {attachments
+                            .filter((f) => !f.mimeType.startsWith('image/'))
+                            .map((file) => (
+                              <button
+                                key={file.id}
+                                type="button"
+                                onClick={() => setPreviewFile(file)}
+                                className="flex items-center gap-2 bg-muted border rounded-lg p-2 text-xs hover:bg-muted/80 transition-colors"
+                              >
+                                <span className="truncate max-w-[150px]">{file.fileName}</span>
+                                <span className="text-muted-foreground">
+                                  ({(file.size / 1024).toFixed(1)}KB)
+                                </span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </>
               )}
@@ -347,6 +544,9 @@ export function ChatMessage({
           )}
         </div>
       </div>
+
+      {/* プレビューモーダル */}
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </div>
   );
 }

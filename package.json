@@ -1,7 +1,7 @@
 {
   "name": "waa-shell",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -16,9 +16,11 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@google/genai": "^1.36.0",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@tanstack/react-query": "^5.90.12",
     "@tauri-apps/api": "^2",
@@ -27,6 +29,7 @@
     "@tauri-apps/plugin-shell": "^2.3.3",
     "dexie": "^4.2.1",
     "katex": "^0.16.27",
+    "ollama": "^0.6.3",
     "openai": "^6.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

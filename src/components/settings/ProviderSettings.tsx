@@ -11,13 +11,13 @@ import {
 
 const PROVIDER_TYPES: ProviderType[] = [
   'openai-compatible',
-  // TODO: 処理切り替え未対応のためコメントアウト
-  // 'azure',
-  // 'anthropic',
-  'google',
-  'ollama',
   'openrouter',
   'litellm',
+  'ollama',
+  'google',
+  'anthropic',
+  // TODO: 処理切り替え未対応のためコメントアウト
+  // 'azure',
 ];
 
 const RESPONSE_API_SUPPORTED_TYPES: ProviderType[] = [

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { ThreadSettings } from '../../lib/db';
 import { db } from '../../lib/db';
 import { listModels } from '../../lib/services/ModelService';
+import { listProviders } from '../../lib/services/ProviderService';
 
 interface ThreadSettingsModalProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export function ThreadSettingsModal({
   // プロバイダー一覧の取得
   const { data: providers = [] } = useQuery({
     queryKey: ['providers'],
-    queryFn: () => db.providers.toArray(),
+    queryFn: listProviders,
   });
 
   // モデル一覧の取得
@@ -183,7 +184,7 @@ export function ThreadSettingsModal({
                   .filter((p) => p.isActive)
                   .map((p) => (
                     <option key={p.id} value={p.id?.toString()} className="bg-background">
-                      {p.name}
+                      {p.name} ({p.type})
                     </option>
                   ))}
               </select>
@@ -202,11 +203,15 @@ export function ThreadSettingsModal({
                 {filteredModels.length === 0 && (
                   <option value="">利用可能なモデルがありません</option>
                 )}
-                {filteredModels.map((m) => (
-                  <option key={m.id} value={m.id} className="bg-background">
-                    {m.name} {!m.isEnabled && '(無効)'}
-                  </option>
-                ))}
+                {filteredModels.map((m) => {
+                  const provider = providers.find((p) => p.id?.toString() === m.providerId);
+                  return (
+                    <option key={m.id} value={m.id} className="bg-background">
+                      {m.name} [{provider?.name || m.provider || m.providerId}]{' '}
+                      {!m.isEnabled && '(無効)'}
+                    </option>
+                  );
+                })}
               </select>
               {filteredModels.length === 0 && (
                 <p className="text-xs text-destructive">プロバイダー設定を確認してください。</p>

@@ -1,11 +1,29 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, Plus, Save, Trash2 } from 'lucide-react';
+import { GripVertical, Plus, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { Provider, ProviderType } from '../../lib/db';
 import {
   deleteProvider,
   listProviders,
-  setActiveProvider,
+  toggleProviderActive,
+  updateProvidersOrder,
   upsertProvider,
 } from '../../lib/services/ProviderService';
 
@@ -33,20 +51,34 @@ export function ProviderSettings() {
     (Omit<Provider, 'createdAt' | 'updatedAt'> & { id?: number }) | null
   >(null);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
   // プロバイダー一覧を取得
   const { data: providers = [] } = useQuery({
     queryKey: ['providers'],
     queryFn: listProviders,
   });
 
-  const activeProviderId = providers.find((p) => p.isActive)?.id;
-
-  // Active切り替えミューテーション
-  const setActiveMutation = useMutation({
-    mutationFn: (id: number) => setActiveProvider(id),
+  // 有効/無効切り替えミューテーション
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+      toggleProviderActive(id, isActive),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers'] });
-      // モデル一覧も再取得が必要（ActiveProviderに依存するため）
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+    },
+  });
+
+  // 並び替えミューテーション
+  const reorderMutation = useMutation({
+    mutationFn: (ordered: Provider[]) => updateProvidersOrder(ordered),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
       queryClient.invalidateQueries({ queryKey: ['models'] });
     },
   });
@@ -56,6 +88,7 @@ export function ProviderSettings() {
     mutationFn: (p: Omit<Provider, 'createdAt' | 'updatedAt'>) => upsertProvider(p),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['providers'] });
+      queryClient.invalidateQueries({ queryKey: ['models'] });
       setEditingProvider(null);
     },
   });
@@ -68,136 +101,81 @@ export function ProviderSettings() {
     },
   });
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = providers.findIndex((p) => p.id === active.id);
+    const newIndex = providers.findIndex((p) => p.id === over.id);
+
+    const newProviders = arrayMove(providers, oldIndex, newIndex);
+    reorderMutation.mutate(newProviders);
+  };
+
   const handleCreateNew = () => {
     setEditingProvider({
       name: '',
       baseUrl: '',
       apiKey: '',
-      type: 'openai-compatible',
+      type: 'google',
       requiresApiKey: true,
-      isActive: providers.length === 0,
+      isActive: true,
     });
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-right">
-      {/* Active Provider Selector */}
-      <section className="space-y-3 p-5 bg-gradient-to-br from-primary/5 to-transparent border border-primary/20 rounded-xl shadow-sm">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-            <Globe className="w-4 h-4 text-primary" />
-            Active Provider
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            チャットで使用するメインのAIプロバイダーを選択してください。
-          </p>
-        </div>
-
-        <div className="relative max-w-md">
-          <select
-            value={activeProviderId || ''}
-            onChange={(e) => {
-              const id = Number(e.target.value);
-              if (id) setActiveMutation.mutate(id);
-            }}
-            className="w-full appearance-none bg-background border border-border rounded-lg px-4 py-3 pr-10 text-sm font-medium shadow-sm transition-all hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-          >
-            {providers.length === 0 && <option value="">プロバイダーがありません</option>}
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.type})
-              </option>
-            ))}
-          </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-          </div>
-        </div>
+    <div className="space-y-6 animate-in fade-in slide-in-from-right">
+      {/* 導入説明 */}
+      <section className="p-4 bg-muted/20 border rounded-lg">
+        <p className="text-sm text-muted-foreground">
+          ドラッグ＆ドロップで優先順位を並び替えることができます。有効なプロバイダーのモデルはすべてチャット画面で選択可能になります。
+        </p>
       </section>
 
       {/* プロバイダー一覧 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-            設定済みプロバイダー
+            プロバイダー設定
           </h3>
           <button
             type="button"
             onClick={handleCreateNew}
-            className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-md text-xs font-bold transition-all"
+            className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-bold transition-all hover:opacity-90 shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>新規追加</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-3">
-          {providers.map((p) => (
-            <div
-              key={p.id}
-              className={`p-3 md:p-4 rounded-md border transition-all flex items-center justify-between gap-4 group ${
-                p.isActive
-                  ? 'bg-primary/5 border-primary/30'
-                  : 'bg-muted/30 hover:border-primary/20'
-              }`}
+        <div className="grid grid-cols-1 gap-2">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={providers.map((p) => p.id as number)}
+              strategy={verticalListSortingStrategy}
             >
-              <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
-                <div
-                  className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
-                    p.isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  <Globe className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-foreground flex items-center gap-2 truncate">
-                    <span className="truncate">{p.name}</span>
-                    {p.isActive && (
-                      <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-primary text-[10px] text-primary-foreground font-bold uppercase tracking-tighter">
-                        Active
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate opacity-70">
-                    {p.baseUrl}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 md:gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setEditingProvider(p)}
-                  className="px-3 py-1.5 rounded-md hover:bg-accent text-xs text-muted-foreground transition-colors"
-                >
-                  編集
-                </button>
-                {!p.isActive && (
-                  <button
-                    type="button"
-                    onClick={() => p.id && deleteMutation.mutate(p.id)}
-                    className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+              {providers.map((p) => (
+                <SortableProviderItem
+                  key={p.id}
+                  provider={p}
+                  onEdit={() => setEditingProvider(p)}
+                  onDelete={() => p.id && deleteMutation.mutate(p.id)}
+                  onToggleActive={(isActive) =>
+                    p.id && toggleActiveMutation.mutate({ id: p.id, isActive })
+                  }
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+          {providers.length === 0 && (
+            <div className="p-8 text-center text-muted-foreground border-2 border-dashed rounded-lg">
+              プロバイダーが設定されていません
             </div>
-          ))}
+          )}
         </div>
       </section>
 
@@ -298,7 +276,7 @@ export function ProviderSettings() {
             <input
               id="p-key"
               type="password"
-              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
               placeholder={editingProvider.requiresApiKey ? '必須です' : 'sk- ... (空欄可)'}
               value={editingProvider.apiKey}
               onChange={(e) => setEditingProvider({ ...editingProvider, apiKey: e.target.value })}
@@ -365,6 +343,112 @@ export function ProviderSettings() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface SortableProviderItemProps {
+  provider: Provider;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleActive: (isActive: boolean) => void;
+}
+
+function SortableProviderItem({
+  provider,
+  onEdit,
+  onDelete,
+  onToggleActive,
+}: SortableProviderItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: provider.id as number,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`p-3 md:p-4 rounded-md border transition-all flex items-center gap-4 group bg-muted/30 hover:border-primary/20 ${
+        isDragging ? 'shadow-xl border-primary scale-[1.02] bg-background' : ''
+      } ${!provider.isActive ? 'grayscale-[0.8] opacity-60' : ''}`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground touch-none"
+      >
+        <GripVertical className="w-4 h-4" />
+      </div>
+
+      <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
+        <div
+          className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
+            provider.isActive
+              ? 'bg-primary text-primary-foreground font-bold shadow-sm'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {provider.type.substring(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-foreground flex items-center gap-2 truncate text-sm">
+            <span className="truncate">{provider.name}</span>
+            <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-muted text-[10px] text-muted-foreground font-bold uppercase border">
+              {provider.type}
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground truncate opacity-70 font-mono">
+            {provider.baseUrl || '(Native SDK)'}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 shrink-0">
+        {/* Toggle Switch */}
+        <button
+          type="button"
+          onClick={() => onToggleActive(!provider.isActive)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+            provider.isActive ? 'bg-primary' : 'bg-muted'
+          }`}
+          title={provider.isActive ? '無効にする' : '有効にする'}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
+              provider.isActive ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+
+        <div className="flex items-center gap-1 opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="px-2 py-1 rounded-md hover:bg-accent text-xs text-muted-foreground transition-colors"
+          >
+            編集
+          </button>
+          {!provider.isActive && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`${provider.name} を削除してもよろしいですか？`)) {
+                  onDelete();
+                }
+              }}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

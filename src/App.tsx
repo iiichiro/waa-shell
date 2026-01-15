@@ -62,6 +62,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // モデル選択状態の管理
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(''); // プロバイダー選択状態の管理
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
@@ -139,7 +140,11 @@ export default function App() {
   // アプリケーション起動時の初期化
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { data: models = [] } = useQuery<ModelInfo[]>({
+  const {
+    data: models = [],
+    isLoading: isModelsLoading,
+    isRefetching: isModelsRefetching,
+  } = useQuery<ModelInfo[]>({
     queryKey: ['models'],
     queryFn: () => listModels(),
   });
@@ -161,30 +166,60 @@ export default function App() {
   }, [isLauncher]);
 
   const handleModelChange = useCallback(
-    (id: string) => {
-      setSelectedModelId(id);
+    async (modelId: string, providerId?: string) => {
+      setSelectedModelId(modelId);
+      if (providerId) setSelectedProviderId(providerId);
+
       if (!activeThreadId) {
         // 新規チャット時はドラフト設定も更新して同期を保つ
-        setDraftThreadSettings((prev) => ({ ...prev, modelId: id }));
+        setDraftThreadSettings((prev) => ({
+          ...prev,
+          modelId,
+          providerId: providerId || prev.providerId,
+        }));
+      } else {
+        // 既存スレッドの場合は即座に設定を更新
+        const existing = await db.threadSettings.where({ threadId: activeThreadId }).first();
+        if (existing?.id) {
+          await db.threadSettings.update(existing.id, {
+            modelId,
+            providerId: providerId || existing.providerId,
+          });
+        } else {
+          await db.threadSettings.add({
+            threadId: activeThreadId,
+            modelId,
+            providerId,
+          } as ThreadSettings);
+        }
+        queryClient.invalidateQueries({ queryKey: ['threadSettings', activeThreadId] });
       }
     },
-    [activeThreadId],
+    [activeThreadId, queryClient],
   );
 
   useEffect(() => {
     if (models.length > 0 && selectedModelId) {
       // 現在の選択モデルが有効なリストにあるか確認（プロバイダー切り替え時などのため）
-      const isValid = models.some((m) => m.id === selectedModelId);
+      // プロバイダーIDも考慮してチェック
+      const isValid = models.some(
+        (m) =>
+          m.id === selectedModelId && (!selectedProviderId || m.providerId === selectedProviderId),
+      );
       if (!isValid) {
         // 無効なら先頭の有効なモデルを選択
         const firstEnabled = models.find((m) => m.isEnabled) || models[0];
-        if (firstEnabled) setSelectedModelId(firstEnabled.id);
+        if (firstEnabled) {
+          setSelectedModelId(firstEnabled.id);
+          setSelectedProviderId(firstEnabled.providerId);
+        }
       }
     } else if (models.length > 0 && !selectedModelId) {
       const firstEnabled = models.find((m) => m.isEnabled) || models[0];
       setSelectedModelId(firstEnabled.id);
+      setSelectedProviderId(firstEnabled.providerId);
     }
-  }, [models, selectedModelId]);
+  }, [models, selectedModelId, selectedProviderId]);
 
   // スレッドの設定を取得（アクティブスレッド変更時の同期用）
   const { data: threadSettings } = useQuery({
@@ -198,14 +233,20 @@ export default function App() {
   useEffect(() => {
     if (activeThreadId) {
       if (threadSettings?.modelId) {
-        // 既存スレッド設定があれば反映（リストになくてもIDはセットする→表示側で未設定扱い等が可能）
+        // 既存スレッド設定があれば反映
         setSelectedModelId(threadSettings.modelId);
+        if (threadSettings.providerId) {
+          setSelectedProviderId(threadSettings.providerId);
+        }
       }
     } else if (draftThreadSettings.modelId) {
       // 新規チャット時はドラフト設定を反映
       setSelectedModelId(draftThreadSettings.modelId);
+      if (draftThreadSettings.providerId) {
+        setSelectedProviderId(draftThreadSettings.providerId);
+      }
     }
-  }, [activeThreadId, threadSettings, draftThreadSettings.modelId]);
+  }, [activeThreadId, threadSettings, draftThreadSettings]);
 
   useEffect(() => {
     // ブラウザデバッグ用、またはTauri環境での判定
@@ -503,7 +544,9 @@ export default function App() {
     if (sendMutation.isPending) return;
 
     const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
-    const currentModel = models.find((m) => m.id === targetModelId);
+    const currentModel = models.find(
+      (m) => m.id === targetModelId && (!selectedProviderId || m.providerId === selectedProviderId),
+    );
 
     if (currentModel) {
       // 選択されたモデルのプロバイダーを確認
@@ -651,7 +694,9 @@ export default function App() {
     if (sendMutation.isPending) return; // 送信中は何もしない
 
     const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
-    const currentModel = models.find((m) => m.id === targetModelId);
+    const currentModel = models.find(
+      (m) => m.id === targetModelId && (!selectedProviderId || m.providerId === selectedProviderId),
+    );
     if (currentModel && !currentModel.isEnabled) {
       alert(
         `モデル「${currentModel.name}」は無効化されているため送信できません。モデル設定から有効化するか、別のモデルを選択してください。`,
@@ -766,7 +811,8 @@ export default function App() {
           models={models}
           providers={providers}
           selectedModelId={selectedModelId}
-          handleModelChange={handleModelChange}
+          selectedProviderId={selectedProviderId}
+          handleModelChange={(mId, pId) => handleModelChange(mId, pId)}
           editingTitle={editingTitle}
           titleInput={titleInput}
           setTitleInput={setTitleInput}
@@ -775,6 +821,7 @@ export default function App() {
           enabledTools={enabledTools}
           setToolEnabled={setToolEnabled}
           hasDraftSettings={Object.keys(draftThreadSettings).length > 0}
+          isModelsLoading={isModelsLoading || isModelsRefetching}
         />
 
         <ThreadSettingsModal

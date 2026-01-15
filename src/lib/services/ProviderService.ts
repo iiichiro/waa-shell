@@ -11,10 +11,7 @@ export async function upsertProvider(provider: Omit<Provider, 'createdAt' | 'upd
   const existing = await db.providers.where('name').equals(provider.name).first();
   const now = new Date();
 
-  // アクティブにする場合、他を全て非アクティブにする
-  if (provider.isActive) {
-    await db.providers.filter((p) => !!p.isActive).modify({ isActive: false });
-  }
+  // 単一アクティブ制限を削除 (複数有効化を許可)
 
   if (existing && existing.id !== undefined) {
     return db.providers.update(existing.id, {
@@ -34,15 +31,39 @@ export async function upsertProvider(provider: Omit<Provider, 'createdAt' | 'upd
  * プロバイダー一覧を取得
  */
 export async function listProviders() {
-  return db.providers.toArray();
+  // 並び順 (order) -> 名前 (name) 順で取得
+  const all = await db.providers.toArray();
+  return all.sort((a, b) => {
+    if ((a.order ?? 999) !== (b.order ?? 999)) return (a.order ?? 999) - (b.order ?? 999);
+    return a.name.localeCompare(b.name);
+  });
 }
 
 /**
- * 現在有効なプロバイダーを取得
+ * プロバイダーの表示順序を一括更新
+ */
+export async function updateProvidersOrder(orderedProviders: Provider[]) {
+  return db.transaction('rw', db.providers, async () => {
+    for (let i = 0; i < orderedProviders.length; i++) {
+      const p = orderedProviders[i];
+      if (p.id !== undefined) {
+        await db.providers.update(p.id, { order: i });
+      }
+    }
+  });
+}
+
+/**
+ * 現在有効なプロバイダーを取得 (フォールバック用)
  */
 export async function getActiveProvider() {
-  // インデックスの互換性問題を避けるため filter を使用 (レコード数が少ないため性能影響なし)
-  return db.providers.filter((p) => !!p.isActive).first();
+  // 並び順 (order) が最小の有効なプロバイダーを返す
+  const allProviders = await db.providers.toArray();
+  const enabledOnes = allProviders
+    .filter((p) => !!p.isActive)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+
+  return enabledOnes[0];
 }
 
 /**
@@ -58,19 +79,18 @@ export async function deleteProvider(id: number) {
 export async function seedProviders() {
   const count = await db.providers.count();
   if (count > 0) return;
-
-  // デフォルトが必要な場合
-  // await upsertProvider({
-  //   name: 'OpenAI (Dummy)',
-  //   baseUrl: 'https://api.openai.com/v1',
-  //   apiKey: '',
-  //   type: 'openai-compatible',
-  //   isActive: true,
-  // });
 }
 
 /**
- * 特定のプロバイダーをアクティブにする
+ * プロバイダーの有効/非有効を切り替える
+ */
+export async function toggleProviderActive(id: number, isActive: boolean) {
+  return db.providers.update(id, { isActive });
+}
+
+/**
+ * 特定のプロバイダーをアクティブにする (互換性のため維持、または廃止検討)
+ * 現状は単一選択UIが一部残る可能性があるため維持
  */
 export async function setActiveProvider(id: number) {
   return db.transaction('rw', db.providers, async () => {

@@ -35,8 +35,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { db, type ManualModel, type ProviderType } from '../../lib/db';
+import { db, type ManualModel, type Provider, type ProviderType } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
+import { listProviders } from '../../lib/services/ProviderService';
 
 const RESPONSE_API_SUPPORTED_TYPES: ProviderType[] = [
   'openai-compatible',
@@ -66,23 +67,17 @@ export function ModelSettings() {
   // 編集用 (ManualModel)
   // 新規作成時は null, 編集時は ManualModel オブジェクト
   const [editingManualModel, setEditingManualModel] = useState<Partial<ManualModel> | null>(null);
-  console.log(editingManualModel);
 
   // データ取得
-  const { data: providers = [] } = useQuery({
+  const { data: providers = [] } = useQuery<Provider[]>({
     queryKey: ['providers'],
-    queryFn: () => db.providers.toArray(),
+    queryFn: listProviders,
   });
 
-  // 初期表示時にActive Providerを選択
+  // 初期表示時に最初のプロバイダーを選択
   useEffect(() => {
     if (!targetProviderId && providers.length > 0) {
-      const active = providers.find((p) => p.isActive);
-      if (active) {
-        setTargetProviderId(active.id?.toString() || '');
-      } else if (providers.length > 0) {
-        setTargetProviderId(providers[0].id?.toString() || '');
-      }
+      setTargetProviderId(providers[0].id?.toString() || 'unknown');
     }
   }, [providers, targetProviderId]);
 
@@ -160,7 +155,7 @@ export function ModelSettings() {
         }
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models', targetProviderId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['models'] }),
   });
 
   // 3. 一括操作 (有効化/無効化)

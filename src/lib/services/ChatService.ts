@@ -133,10 +133,14 @@ export async function sendMessage(
     throw new Error(`モデル「${currentModel.name}」は無効化されているため送信できません。`);
   }
 
-  // プロバイダーオブジェクトの取得 (指定がある場合)
+  // プロバイダーオブジェクトの取得
   let specificProvider: import('../db').Provider | undefined;
-  if (providerId) {
-    specificProvider = await db.providers.get(Number(providerId));
+
+  // スレッド設定のプロバイダーID、またはモデル情報からプロバイダーIDを特定
+  const targetProviderId = providerId || currentModel?.providerId;
+
+  if (targetProviderId) {
+    specificProvider = await db.providers.get(Number(targetProviderId));
   }
 
   const now = new Date();

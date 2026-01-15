@@ -1,4 +1,13 @@
-import { ChevronDown, FolderOpen, Menu, Plus, Settings, Settings2, X } from 'lucide-react';
+import {
+  ChevronDown,
+  FolderOpen,
+  Menu,
+  Plus,
+  RefreshCw,
+  Settings,
+  Settings2,
+  X,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef } from 'react';
 import type { Provider } from '../../lib/db';
@@ -21,7 +30,8 @@ interface ChatHeaderProps {
   models: ModelInfo[];
   providers: Provider[];
   selectedModelId: string;
-  handleModelChange: (id: string) => void;
+  selectedProviderId: string;
+  handleModelChange: (modelId: string, providerId: string) => void;
 
   // Title editing
   editingTitle: boolean;
@@ -36,6 +46,9 @@ interface ChatHeaderProps {
 
   // Thread settings draft
   hasDraftSettings: boolean;
+
+  // Loading state
+  isModelsLoading: boolean;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -52,12 +65,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   models,
   providers,
   selectedModelId,
+  selectedProviderId,
   handleModelChange,
   editingTitle,
   titleInput,
   setTitleInput,
   setEditingTitle,
   handleTitleUpdate,
+  isModelsLoading,
 }) => {
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,9 +82,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     }
   }, [editingTitle]);
 
+  // 有効なモデルのみを表示対象とする
+  const enabledModels = models.filter((m) => m.isEnabled);
+
   // Group models by category
-  const manualModels = models.filter((m) => m.isManual || m.isCustom);
-  const apiModels = models.filter((m) => !m.isManual && !m.isCustom);
+  const manualModels = enabledModels.filter((m) => m.isManual || m.isCustom);
+  const apiModels = enabledModels.filter((m) => !m.isManual && !m.isCustom);
+
+  // 複合ID生成ヘルパー
+  const getCompositeId = (m: ModelInfo) => `${m.providerId}::${m.id}`;
+  const currentCompositeId = `${selectedProviderId}::${selectedModelId}`;
 
   return (
     <header
@@ -134,7 +156,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
       {/* 2. Model Selection Area */}
       <div className="flex items-center justify-end gap-2 px-2 flex-1 max-w-md">
         <div className="hidden md:flex items-center shrink-0">
-          <ModelCapabilityIndicators model={models.find((m) => m.id === selectedModelId)} />
+          <ModelCapabilityIndicators
+            model={models.find(
+              (m) => m.id === selectedModelId && m.providerId === selectedProviderId,
+            )}
+          />
         </div>
 
         <div className="relative group w-full max-w-[200px] md:max-w-[240px]">
@@ -146,27 +172,46 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                   return '未選択';
                 }
 
-                const model = models.find((m) => m.id === selectedModelId);
-                return model
-                  ? `${model.name} [${model.provider || model.providerId}]`
-                  : selectedModelId || '不明';
+                const model = models.find(
+                  (m) => m.id === selectedModelId && m.providerId === selectedProviderId,
+                );
+                const provider = providers.find((p) => p.id?.toString() === model?.providerId);
+
+                if (model) {
+                  return `${model.name} [${provider?.name || model.provider || model.providerId}]`;
+                }
+
+                if (isModelsLoading) {
+                  return '読み込み中...';
+                }
+
+                return selectedModelId || '未選択';
               })()}
             </span>
+            {isModelsLoading && (
+              <RefreshCw className="w-3 h-3 ml-2 animate-spin text-primary shrink-0" />
+            )}
           </div>
 
           {/* Hidden Trigger Select */}
           <select
-            value={selectedModelId}
-            onChange={(e) => handleModelChange(e.target.value)}
-            className="absolute inset-0 w-full h-full appearance-none bg-transparent text-transparent cursor-pointer z-20"
+            value={currentCompositeId}
+            onChange={(e) => {
+              const [pId, ...mIds] = e.target.value.split('::');
+              handleModelChange(mIds.join('::'), pId);
+            }}
+            disabled={isModelsLoading}
+            className={`absolute inset-0 w-full h-full appearance-none bg-transparent text-transparent z-20 ${isModelsLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}
             title={(() => {
-              const selectedModel = models.find((m) => m.id === selectedModelId);
+              const selectedModel = models.find(
+                (m) => m.id === selectedModelId && m.providerId === selectedProviderId,
+              );
               if (!selectedModel) return `モデル: ${selectedModelId}`;
               const provider = providers.find((p) => p.id?.toString() === selectedModel.providerId);
               return `${selectedModel.name || selectedModel.id} [${provider?.name || selectedModel.provider || '不明'}]`;
             })()}
           >
-            {models.length === 0 ? (
+            {enabledModels.length === 0 ? (
               <option className="text-foreground bg-popover">モデルなし</option>
             ) : (
               <>
@@ -175,11 +220,18 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     label="ユーザー定義"
                     className="text-xs text-foreground bg-popover font-semibold"
                   >
-                    {manualModels.map((m) => (
-                      <option key={m.id} value={m.id} className="text-foreground bg-popover">
-                        {m.name} [{m.provider || m.providerId}] {!m.isEnabled && '(無効)'}
-                      </option>
-                    ))}
+                    {manualModels.map((m) => {
+                      const provider = providers.find((p) => p.id?.toString() === m.providerId);
+                      return (
+                        <option
+                          key={getCompositeId(m)}
+                          value={getCompositeId(m)}
+                          className="text-foreground bg-popover"
+                        >
+                          {m.name} [{provider?.name || m.provider || m.providerId}]
+                        </option>
+                      );
+                    })}
                   </optgroup>
                 )}
                 {apiModels.length > 0 && (
@@ -187,11 +239,18 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     label="APIモデル"
                     className="text-xs text-foreground bg-popover font-semibold"
                   >
-                    {apiModels.map((m) => (
-                      <option key={m.id} value={m.id} className="text-foreground bg-popover">
-                        {m.name} [{m.provider || m.providerId}] {!m.isEnabled && '(無効)'}
-                      </option>
-                    ))}
+                    {apiModels.map((m) => {
+                      const provider = providers.find((p) => p.id?.toString() === m.providerId);
+                      return (
+                        <option
+                          key={getCompositeId(m)}
+                          value={getCompositeId(m)}
+                          className="text-foreground bg-popover"
+                        >
+                          {m.name} [{provider?.name || m.provider || m.providerId}]
+                        </option>
+                      );
+                    })}
                   </optgroup>
                 )}
               </>

@@ -93,7 +93,8 @@ export interface Provider {
   apiKey: string; // APIキー
   requiresApiKey?: boolean; // APIキーを必須とするか
   supportsResponseApi?: boolean; // Response API (POST /v1/responses) に対応しているか
-  isActive: boolean; // 現在使用中かどうか
+  isActive: boolean; // 現在有効かどうか
+  order?: number; // 表示順序
   createdAt: Date;
   updatedAt: Date;
 }
@@ -269,6 +270,10 @@ export class AppDatabase extends Dexie {
     // Schema update for v12: Add reasoning per message
     this.version(12).stores({
       // No index changes
+    });
+    // Schema update for v13: Add order to providers
+    this.version(13).stores({
+      providers: '++id, &name, type, isActive, order',
     });
   }
 }

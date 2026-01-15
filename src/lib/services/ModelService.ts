@@ -78,6 +78,15 @@ export async function chatCompletion(options: ChatCompletionOptions) {
     }
   }
 
+  // プロバイダーが未解決の場合、モデルIDからプロバイダーを探す
+  if (!resolvedProvider) {
+    const allModels = await listModels();
+    const targetModel = allModels.find((m) => m.id === modelId || m.targetModelId === modelId);
+    if (targetModel) {
+      resolvedProvider = await db.providers.get(Number(targetModel.providerId));
+    }
+  }
+
   const provider = resolvedProvider || (await getActiveProvider());
   if (!provider) {
     throw new Error('有効なAIプロバイダーが設定されていません。');
@@ -148,6 +157,15 @@ export async function createResponseApi(options: {
     }
   }
 
+  // プロバイダーが未解決の場合、モデルIDからプロバイダーを探す
+  if (!provider) {
+    const allModels = await listModels();
+    const targetModel = allModels.find((m) => m.id === modelId || m.targetModelId === modelId);
+    if (targetModel) {
+      provider = await db.providers.get(Number(targetModel.providerId));
+    }
+  }
+
   const targetProvider = provider || (await getActiveProvider());
   if (!targetProvider) {
     throw new Error('有効なAIプロバイダーが設定されていません。');
@@ -181,14 +199,21 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
   let providers: Provider[] = [];
 
   if (targetProvider) {
-    if (targetProvider.isActive) {
-      providers = [targetProvider];
-    }
+    // ターゲット指定がある場合は、非アクティブでもそのプロバイダーのモデルを取得できるようにする
+    // (設定画面での利用などを想定)
+    providers = [targetProvider];
   } else {
-    providers = await db.providers.filter((p) => !!p.isActive).toArray();
+    // 全プロバイダーから有効なものを取得 (order順)
+    const allProviders = await db.providers.toArray();
+    providers = allProviders
+      .filter((p) => !!p.isActive)
+      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   }
 
   if (providers.length === 0) return [];
+
+  // プロバイダーごとの順序を保持するためのマップ
+  const providerOrderMap = new Map(providers.map((p, i) => [p.id?.toString(), i]));
 
   const results = await Promise.allSettled(
     providers.map((p) => {
@@ -208,8 +233,18 @@ export async function listModels(targetProvider?: Provider): Promise<ModelInfo[]
   });
 
   return allModels.sort((a, b) => {
+    // 1. プロバイダーの表示順序 (Provider.order)
+    const orderA = providerOrderMap.get(a.providerId) ?? 999;
+    const orderB = providerOrderMap.get(b.providerId) ?? 999;
+    if (orderA !== orderB) return orderA - orderB;
+
+    // 2. モデルの表示順序 (Model.order)
     if (a.order !== b.order) return a.order - b.order;
+
+    // 3. プロバイダー名
     if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
+
+    // 4. モデル名
     return a.name.localeCompare(b.name);
   });
 }

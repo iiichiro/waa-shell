@@ -142,10 +142,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           <div className="w-full flex items-center bg-muted/50 hover:bg-muted border border-transparent hover:border-border rounded pl-4 pr-8 md:pr-10 py-1.5 transition-all text-left">
             <span className="text-xs font-bold text-foreground truncate select-none">
               {(() => {
+                if (!selectedModelId) {
+                  return '未選択';
+                }
+
                 const model = models.find((m) => m.id === selectedModelId);
                 return model
                   ? `${model.name} [${model.provider || model.providerId}]`
-                  : selectedModelId;
+                  : selectedModelId || '不明';
               })()}
             </span>
           </div>

@@ -35,8 +35,15 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { db, type ManualModel } from '../../lib/db';
+import { db, type ManualModel, type ProviderType } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
+
+const RESPONSE_API_SUPPORTED_TYPES: ProviderType[] = [
+  'openai-compatible',
+  'azure',
+  'openrouter',
+  'litellm',
+];
 
 export function ModelSettings() {
   const queryClient = useQueryClient();
@@ -764,7 +771,10 @@ export function ModelSettings() {
                     const currentProviderId = editingManualModel?.providerId || targetProviderId;
                     const provider = providers.find((p) => p.id?.toString() === currentProviderId);
 
-                    if (provider?.supportsResponseApi) {
+                    if (
+                      provider?.supportsResponseApi &&
+                      RESPONSE_API_SUPPORTED_TYPES.includes(provider.type)
+                    ) {
                       return (
                         <div className="mt-4 p-3 border rounded-md bg-muted/10">
                           <p className="block text-xs font-bold text-foreground mb-2">

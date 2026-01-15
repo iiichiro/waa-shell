@@ -113,80 +113,50 @@ src/
 │
 ├── components/               # UI コンポーネント
 │   ├── common/               # 汎用コンポーネント
-│   │   ├── Button/
-│   │   │   ├── Button.tsx
-│   │   │   ├── Button.css
-│   │   │   └── index.ts
-│   │   ├── Modal/
+│   │   ├── FilePreviewModal.tsx
+│   │   ├── FileExplorer.tsx
 │   │   └── ErrorBoundary.tsx
 │   │
-│   ├── layout/               # レイアウトコンポーネント
-│   │   ├── Header.tsx
-│   │   ├── Sidebar.tsx
-│   │   └── CommonHeader.tsx
-│   │
-│   ├── chat/                 # チャット機能コンポーネント
-│   │   ├── ChatMessage.tsx
-│   │   ├── ChatInputArea.tsx
-│   │   └── MarkdownRenderer.tsx
-│   │
-│   ├── settings/             # 設定画面コンポーネント
-│   │   ├── SettingsView.tsx
-│   │   ├── GeneralSettings.tsx
-│   │   ├── ModelSettings.tsx
-│   │   ├── ProviderSettings.tsx
-│   │   └── McpServerSettings.tsx
-│   │
+│   ├── layout/               # レイアウトコンポーネント (Header, Sidebar)
+│   ├── chat/                 # チャット機能コンポーネント (Message, Input)
+│   ├── settings/             # 設定画面コンポーネント (ProviderSettings, ModelSettings)
 │   └── command/              # コマンド関連コンポーネント
-│       ├── CommandManager.tsx
-│       ├── SlashCommandForm.tsx
-│       └── SlashCommandSuggest.tsx
 │
-├── hooks/                    # カスタムフック
-│   ├── useChat.ts
-│   ├── useSettings.ts
-│   ├── useKeyboardNavigation.ts
-│   └── index.ts
+├── hooks/                    # (Recommended) カスタムフック (現状未実装)
+│   └── ...
 │
 ├── lib/                      # ライブラリ・サービス層
 │   ├── constants/            # 定数定義
 │   │   └── index.ts
 │   │
 │   ├── db/                   # データベース関連
-│   │   ├── schema.ts         # テーブル定義
-│   │   └── migrations/       # マイグレーション
+│   │   └── db.ts             # Dexie DB 定義
+│   │
+│   ├── providers/            # (New) AI プロバイダー実装
+│   │   ├── BaseProvider.ts   # プロバイダー基底クラス
+│   │   ├── GoogleProvider.ts
+│   │   ├── OpenAIProvider.ts
+│   │   └── ProviderFactory.ts
 │   │
 │   ├── services/             # ビジネスロジック
 │   │   ├── ChatService.ts
 │   │   ├── ModelService.ts
-│   │   ├── ProviderService.ts
+│   │   ├── ProviderService.ts # プロバイダーのDB管理
 │   │   ├── AuthService.ts
 │   │   ├── FileService.ts
 │   │   ├── McpService.ts
 │   │   ├── TemplateService.ts
 │   │   └── ToolService.ts
 │   │
-│   ├── utils/                # ユーティリティ関数
-│   │   ├── format.ts
-│   │   ├── validation.ts
-│   │   └── index.ts
-│   │
-│   └── db.ts                 # DB 初期化・接続
+│   └── utils/                # ユーティリティ関数
+│       ├── image.ts
+│       └── ...
 │
 ├── store/                    # 状態管理（Zustand など）
-│   ├── useAppStore.ts
-│   └── index.ts
+│   └── useAppStore.ts
 │
-├── types/                    # 型定義
-│   ├── chat.ts
-│   ├── provider.ts
-│   ├── model.ts
-│   └── index.ts
-│
-├── styles/                   # 共通スタイル
-│   ├── variables.css         # CSS 変数
-│   ├── reset.css             # リセット CSS
-│   └── components/           # コンポーネント別スタイル
+├── types/                    # (Recommended) 型定義 (現状未実装・各ファイルに散在)
+│   └── ...
 │
 └── test/                     # ユニットテスト設定
     └── setup.tsx             # テストセットアップ
@@ -196,27 +166,18 @@ src/
 
 | サブディレクトリ | 役割 |
 |---|---|
-| `common/` | 再利用可能な汎用 UI コンポーネント（Button, Modal, Input など） |
+| `common/` | 再利用可能な汎用 UI コンポーネント |
 | `layout/` | ページレイアウト構成（Header, Sidebar, Footer） |
 | `chat/` | チャット機能に特化したコンポーネント |
 | `settings/` | 設定画面のコンポーネント |
 | `command/` | コマンド・スラッシュコマンド関連 |
 
-> [!TIP]
-> 各コンポーネントは `ComponentName/` ディレクトリにまとめ、`ComponentName.tsx`, `ComponentName.css`, `index.ts` を含めると管理しやすい。
+#### `src/lib/services/` vs `src/lib/providers/`
 
-#### `src/lib/services/` の責務
-
-| ファイル | 役割 |
+| ディレクトリ | 役割 |
 |---|---|
-| `ChatService.ts` | チャットメッセージの送受信、ストリーミング処理 |
-| `ModelService.ts` | AI モデルの取得、管理、設定 |
-| `ProviderService.ts` | AI プロバイダー（OpenAI, Gemini など）の管理 |
-| `AuthService.ts` | 認証・API キー管理 |
-| `FileService.ts` | ファイルアップロード・管理 |
-| `McpService.ts` | MCP サーバ連携 |
-| `TemplateService.ts` | プロンプトテンプレート管理 |
-| `ToolService.ts` | ツール機能（Function Calling）管理 |
+| `providers/` | **外部 API との通信**: 各 AI プロバイダー (OpenAI, Gemini) の SDK ラッパー。`BaseProvider` を継承。 |
+| `services/` | **アプリケーションロジック**: DB 操作、状態管理との連携、`providers/` の呼び出し。 |
 
 ---
 
@@ -233,10 +194,9 @@ src-tauri/
 ├── capabilities/             # 権限定義
 │   └── default.json
 │
+├── gen/                      # 自動生成コード (Schemas)
 ├── icons/                    # アプリアイコン
-│   ├── icon.ico
-│   └── icon.png
-│
+├── target/                   # ビルド出力
 ├── Cargo.toml                # Rust 依存関係
 ├── Cargo.lock
 ├── build.rs                  # ビルドスクリプト

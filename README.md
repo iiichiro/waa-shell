@@ -10,8 +10,8 @@ Raycast 風のランチャーモードを備え、作業中にグローバルシ
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
 - **Database**: [Dexie.js](https://dexie.org/) (IndexedDB)
 - **State Management**: [Zustand](https://zustand-demo.pmnd.rs/), [TanStack Query](https://tanstack.com/query/latest)
-- **AI & MCP**: [OpenAI Node SDK](https://github.com/openai/openai-node), [Model Context Protocol SDK](https://github.com/modelcontextprotocol/typescript-sdk)
-- **Rendering**: [React Markdown](https://github.com/remarkjs/react-markdown), [KaTeX](https://katex.org/) (Math), [React Syntax Highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter)
+- **AI & MCP**: [@google/genai](https://www.npmjs.com/package/@google/genai), [@anthropic-ai/sdk](https://www.npmjs.com/package/@anthropic-ai/sdk), [OpenAI Node SDK](https://github.com/openai/openai-node), [Model Context Protocol SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- **Rendering**: [React Markdown](https://github.com/remarkjs/react-markdown), [KaTeX](https://katex.org/) (Math), [Shiki](https://shiki.style/) (Syntax Highlighter)
 - **Linting & Formatting**: [Biome](https://biomejs.dev/)
 - **Icons**: [Lucide React](https://lucide.dev/)
 
@@ -20,25 +20,33 @@ Raycast 風のランチャーモードを備え、作業中にグローバルシ
 ```text
 waa-shell/
 ├── src-tauri/            # Rust (Backend) 関連コード
-│   ├── capabilities/    # Tauri 権限設定 (Permission files)
+│   ├── capabilities/    # Tauri 権限設定
 │   ├── gen/             # 自動生成コード (Schemas)
-│   └── src/             # Rust ロジック (Window管理, ショートカット等)
+│   ├── src/             # Rust ロジック (Window管理, ショートカット等)
+│   └── tauri.conf.json  # Tauri 設定ファイル
 ├── src/                  # Frontend (React) 関連コード
+│   ├── assets/          # 静的リソース
 │   ├── components/      # UI コンポーネント
-│   │   ├── chat/        # チャット機能関連 (Message, Input)
+│   │   ├── chat/        # チャット機能関連
 │   │   ├── command/     # スラッシュコマンド管理
-│   │   ├── common/      # 共通コンポーネント (FileExplorer等)
-│   │   ├── layout/      # レイアウト (Sidebar等)
+│   │   ├── common/      # 共通コンポーネント
+│   │   ├── layout/      # レイアウト
 │   │   └── settings/    # 設定画面
 │   ├── lib/             # ビジネスロジック・ライブラリ
 │   │   ├── constants/   # 定数定義
-│   │   ├── db/          # データベース操作 (Tables, Queries)
-│   │   ├── services/    # アプリケーションサービス (Chat, Model, MCP)
-│   │   └── utils/       # ユーティリティ関数
+│   │   ├── db/          # データベース定義 (Dexie.js)
+│   │   ├── providers/   # AI プロバイダー実装 (OpenAI, Google, etc.)
+│   │   ├── services/    # アプリケーションサービス
+│   │   └── utils/       # ユーティリティ
 │   ├── store/           # グローバル状態管理 (Zustand)
-│   ├── index.css        # Tailwind v4 ディレクティブ & テーマ変数
-│   └── App.tsx          # メインエントリー・ルーティング・レイアウト制御
-├── specs/                # 設計ドキュメント・要件定義書
+│   ├── test/            # テスト設定 (setup.tsx)
+│   ├── index.css        # テーマ変数 & Tailwind v4
+│   └── App.tsx          # メインエントリー
+├── specs/                # 要件定義・設計ドキュメント
+│   ├── changes/         # 変更履歴
+│   └── designs/         # 設計書 (data_model, tech_stack 等)
+├── tests/                # E2E テスト (Playwright)
+├── AGENTS.md             # AI エージェント用ガイドライン
 └── biome.json            # Biome 設定ファイル
 ```
 

@@ -46,5 +46,5 @@
 | カテゴリ       | 技術                            | 選定理由                                                                         |
 | :------------- | :------------------------------ | :------------------------------------------------------------------------------- |
 | **MCP Client** | **@modelcontextprotocol/sdk**   | (New) Streamable HTTP, SSE などの最新プロトコル対応。接続管理の抽象化。          |
-| **LLM Client** | **OpenAI SDK**                  | (New) 型安全なリクエスト、ストリーミング、ツール呼び出しの標準化された実装。      |
-| **Auth**       | **OIDC / Proof Key (PKCE)**     | セキュアなリモート MCP 連携。Deep Link を介したログインフロー。                  |
+| **LLM Client** | **Multiple SDKs**              | @google/genai, @anthropic-ai/sdk, OpenAI SDK 等を使い分け。 |
+| **Auth**       | **OIDC / Proof Key (PKCE)**     | セキュアなリモート MCP 連携。Deep Link を介したログインフロー。              |

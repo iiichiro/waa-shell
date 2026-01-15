@@ -10,19 +10,15 @@
 // Dexie Schema Definition
 db.version(2).stores({
   threads: '++id, title, createdAt, updatedAt',
-  // contentを全文検索用にインデックス化 (簡易検索: startsWith等)
-  // 本格的な全文検索は別途 SearchService でメモリ内インデックス or 外部ライブラリ (FlexSearch) を検討推奨
   messages: '++id, threadId, parentId, role, createdAt, content',
-
   assistants: '++id, name, isDefault, createdAt',
-  models: '++id, name, providerId, enabled',
-  providers: '++id, name, type, enabled',
-
+  providers: '++id, name, type, isActive',
+  modelConfigs: '[providerId+modelId], providerId, modelId',
+  manualModels: 'uuid, providerId, modelId, name',
   slashCommands: '++id, &key, label, createdAt',
-
   mcp_servers: '++id, &name, type, authType, isActive, createdAt',
   settings: 'key',
-  files: '++id, threadId, messageId, fileName, mimeType, createdAt', // IndexedDB Only
+  files: '++id, threadId, messageId, fileName, mimeType, createdAt',
 });
 ```
 

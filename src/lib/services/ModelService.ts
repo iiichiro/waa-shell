@@ -1,4 +1,9 @@
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
+import type {
+  Response,
+  ResponseCreateParams,
+  ResponseStreamEvent,
+} from 'openai/resources/responses/responses';
 import { db, type Provider } from '../db';
 import { getProvider } from '../providers/ProviderFactory';
 import { getActiveProvider } from './ProviderService';
@@ -18,6 +23,20 @@ export interface ChatCompletionOptions {
   stop?: string | string[];
   tools?: OpenAI.Chat.ChatCompletionTool[];
   tool_choice?: OpenAI.Chat.ChatCompletionToolChoiceOption;
+  extraParams?: Record<string, unknown>;
+  provider?: Provider;
+  signal?: AbortSignal;
+}
+
+/**
+ * Response API リクエストのオプション設定
+ */
+export interface ResponseOptions {
+  model: string;
+  input: ResponseCreateParams['input'];
+  stream?: boolean;
+  tools?: OpenAI.Chat.ChatCompletionTool[];
+  max_tokens?: number;
   extraParams?: Record<string, unknown>;
   provider?: Provider;
   signal?: AbortSignal;
@@ -107,89 +126,63 @@ export async function chatCompletion(options: ChatCompletionOptions) {
   });
 }
 
-export interface ResponseInputItem {
-  role: string;
-  content?: string | unknown[];
-  tool_call_id?: string;
-  tool_calls?: unknown[];
-}
-
-export interface ResponseOutputItem {
-  type: 'message' | 'tool_call' | 'reasoning' | string;
-  id?: string;
-  content?: { type: 'output_text'; text: string }[];
-  function?: { name: string; arguments: string };
-  summary?: { type: 'summary_text'; text: string }[];
-}
-
-export interface ResponseOutput {
-  output: ResponseOutputItem[];
-}
-
 /**
  * Response API (POST /v1/responses) を呼び出す
- * 注: 現状 GoogleProvider は Response API 未対応のため OpenAIProvider 経由のみ想定
  */
-export async function createResponseApi(options: {
-  model: string;
-  input: ResponseInputItem[];
-  tools?: OpenAI.Chat.ChatCompletionTool[];
-  max_tokens?: number;
-  extraParams?: Record<string, unknown>;
-  signal?: AbortSignal;
-}): Promise<ResponseOutput> {
+export async function createResponse(
+  options: ResponseOptions,
+): Promise<Response | AsyncIterable<ResponseStreamEvent>> {
   let modelId = options.model;
   let mergedExtraParams = options.extraParams || {};
   const systemParams: Record<string, unknown> = {};
-  let provider: Provider | undefined;
+  let resolvedProvider = options.provider;
 
   const manualModel = await db.manualModels.where('uuid').equals(modelId).first();
   if (manualModel) {
     modelId = manualModel.modelId;
-    if (manualModel.extraParams)
+    if (manualModel.extraParams) {
       mergedExtraParams = { ...manualModel.extraParams, ...mergedExtraParams };
+    }
     if (manualModel.maxTokens) systemParams.max_tokens = manualModel.maxTokens;
-    provider = await db.providers.get(parseInt(manualModel.providerId, 10));
+    if (!resolvedProvider && manualModel.providerId) {
+      resolvedProvider = await db.providers.get(Number(manualModel.providerId));
+    }
   } else {
     const customModel = await db.customModels.where({ modelId }).first();
     if (customModel) {
       modelId = customModel.baseModelId;
+      if (customModel.extraParams) {
+        mergedExtraParams = { ...customModel.extraParams, ...mergedExtraParams };
+      }
+      if (customModel.maxTokens) systemParams.max_tokens = customModel.maxTokens;
     }
   }
 
   // プロバイダーが未解決の場合、モデルIDからプロバイダーを探す
-  if (!provider) {
+  if (!resolvedProvider) {
     const allModels = await listModels();
     const targetModel = allModels.find((m) => m.id === modelId || m.targetModelId === modelId);
     if (targetModel) {
-      provider = await db.providers.get(Number(targetModel.providerId));
+      resolvedProvider = await db.providers.get(Number(targetModel.providerId));
     }
   }
 
-  const targetProvider = provider || (await getActiveProvider());
-  if (!targetProvider) {
+  const provider = resolvedProvider || (await getActiveProvider());
+  if (!provider) {
     throw new Error('有効なAIプロバイダーが設定されていません。');
   }
 
-  // Response API は現状 OpenAI SDK 依存の特殊エンドポイント
-  // もし将来的に Google 等が対応した場合は Provider インターフェースに追加が必要
-  const client = new OpenAI({
-    baseURL: targetProvider.baseUrl,
-    apiKey: targetProvider.apiKey,
-    dangerouslyAllowBrowser: true,
-  });
+  const providerInstance = getProvider(provider);
 
-  const body = {
+  return providerInstance.createResponse({
     model: modelId,
     input: options.input,
+    stream: options.stream,
     tools: options.tools,
-    ...systemParams,
-    ...mergedExtraParams,
-  };
-
-  // @ts-expect-error: OpenAI SDK type
-  const response = await client.responses.create(body, { signal: options.signal });
-  return response as unknown as ResponseOutput;
+    max_tokens: options.max_tokens || (systemParams.max_tokens as number),
+    extraParams: mergedExtraParams,
+    signal: options.signal,
+  });
 }
 
 /**

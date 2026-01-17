@@ -1,4 +1,4 @@
-import { Menu, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { ElementType, ReactNode } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 
@@ -17,7 +17,7 @@ export function CommonHeader({
   children,
   className = '',
 }: CommonHeaderProps) {
-  const { isLauncher, toggleSidebar, isSidebarOpen } = useAppStore();
+  const { isLauncher } = useAppStore();
 
   return (
     <header
@@ -32,17 +32,6 @@ export function CommonHeader({
         } cursor-default`}
         data-tauri-drag-region={isLauncher ? 'true' : undefined}
       >
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className={`p-2 hover:bg-accent rounded-md text-muted-foreground hover:text-foreground transition-colors hidden ${
-            !isLauncher && 'md:flex'
-          }`}
-          title={isSidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く'}
-        >
-          <Menu className={isLauncher ? 'w-4 h-4' : 'w-5 h-5'} />
-        </button>
-
         <h2 className="font-bold text-foreground flex items-center gap-2 mr-1 shrink-0">
           {Icon && <Icon className={`${isLauncher ? 'w-4 h-4' : 'w-5 h-5'} text-primary`} />}
           <span className={isLauncher ? 'text-xs' : ''}>{title}</span>

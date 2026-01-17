@@ -1,104 +1,30 @@
-import { GoogleGenAI } from '@google/genai';
-import Dexie from 'dexie';
+import { GoogleGenAI, type Tool } from '@google/genai';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
-import { db } from '../db';
-import type { ModelInfo } from '../services/ModelService';
-import type { BaseProvider, ChatOptions } from './BaseProvider';
+import { AbstractProvider } from './AbstractProvider';
+import type { ChatOptions } from './BaseProvider';
 
-export class GoogleProvider implements BaseProvider {
+type ExtendedTool = Tool | { googleSearchRetrieval: Record<string, unknown> };
+
+export class GoogleProvider extends AbstractProvider {
   private client: GoogleGenAI;
-  private provider: Provider;
 
   constructor(provider: Provider) {
-    this.provider = provider;
-    this.client = new GoogleGenAI({
-      apiKey: provider.apiKey || '',
-    });
+    super(provider);
+    this.client = new GoogleGenAI({ apiKey: provider.apiKey || '' });
   }
 
-  async listModels(): Promise<ModelInfo[]> {
-    const providerIdStr = this.provider.id?.toString() || '';
-    let apiModels: { id: string; object: string }[] = [];
+  protected async fetchApiModels(): Promise<{ id: string; object: string }[]> {
+    if (!this.provider.apiKey) return [];
 
-    try {
-      if (this.provider.apiKey) {
-        const response = await this.client.models.list();
-        // Pager<Model> は AsyncIterable であり、.page プロパティで現在のページの Model[] を取得できる
-        const apiModelsRaw = response.page || [];
-        apiModels = apiModelsRaw
-          .filter((m) => typeof m.name === 'string')
-          .map((m) => ({
-            id: (m.name as string).replace('models/', ''),
-            object: 'model',
-          }));
-      }
-    } catch (error) {
-      console.warn(`モデル一覧の取得に失敗しました (Provider: ${this.provider.name})`, error);
-    }
-
-    const manualModels = await db.manualModels.where({ providerId: providerIdStr }).toArray();
-    const configs = await db.modelConfigs
-      .where('[providerId+modelId]')
-      .between([providerIdStr, Dexie.minKey], [providerIdStr, Dexie.maxKey])
-      .toArray();
-
-    const configMap = new Map(configs.map((c) => [c.modelId, c]));
-    const manualModelIds = new Set(manualModels.map((m) => m.uuid));
-
-    const startOrder = 1000;
-    const models: ModelInfo[] = [];
-
-    apiModels.forEach((m, index) => {
-      if (manualModelIds.has(m.id)) return;
-      const config = configMap.get(m.id);
-      models.push({
-        id: m.id,
-        targetModelId: m.id,
-        name: m.id,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        canStream: true,
-        enableStream: config ? config.enableStream : true,
-        isEnabled: config ? config.isEnabled : true,
-        order: config?.order ?? startOrder + index,
-        isCustom: false,
-        isManual: false,
-        supportsTools: config?.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? true,
-        protocol: config?.protocol || 'chat_completion',
-      });
-    });
-
-    manualModels.forEach((m) => {
-      const config = configMap.get(m.uuid);
-      const isOverride = apiModels.some((am) => am.id === m.uuid);
-
-      models.push({
-        id: m.uuid,
-        targetModelId: m.modelId,
-        name: m.name,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        description: m.description,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
-        inputCostPer1k: m.inputCostPer1k,
-        outputCostPer1k: m.outputCostPer1k,
-        canStream: true,
-        enableStream: config?.enableStream ?? m.enableStream ?? true,
-        isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
-        order: config?.order ?? startOrder + apiModels.length + 500,
-        isCustom: false,
-        isManual: true,
-        isApiOverride: isOverride,
-        supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
-        protocol: config?.protocol || m.protocol || 'chat_completion',
-      });
-    });
-
-    return models;
+    const response = await this.client.models.list();
+    const apiModelsRaw = response.page || [];
+    return apiModelsRaw
+      .filter((m) => typeof m.name === 'string')
+      .map((m) => ({
+        id: (m.name as string).replace('models/', ''),
+        object: 'model',
+      }));
   }
 
   async chatCompletion(
@@ -131,6 +57,28 @@ export class GoogleProvider implements BaseProvider {
 
     const systemInstructionContent = options.messages.find((m) => m.role === 'system')?.content;
 
+    const tools: ExtendedTool[] = [];
+    if (options.tools) {
+      for (const t of options.tools) {
+        if (t.type === 'function' && t.function.name === 'web_search') {
+          tools.push({ googleSearchRetrieval: {} });
+        } else if (t.type === 'function') {
+          let fdTool = tools.find(
+            (existing): existing is Extract<Tool, { functionDeclarations?: unknown[] }> =>
+              'functionDeclarations' in existing,
+          );
+          if (!fdTool) {
+            fdTool = { functionDeclarations: [] };
+            tools.push(fdTool as Tool);
+          }
+          fdTool.functionDeclarations?.push({
+            name: t.function.name,
+            description: t.function.description,
+            parameters: t.function.parameters,
+          });
+        }
+      }
+    }
     const generationConfig = {
       maxOutputTokens: options.max_tokens,
       temperature: options.temperature,
@@ -138,6 +86,7 @@ export class GoogleProvider implements BaseProvider {
       // systemInstruction は config 内に配置
       systemInstruction:
         typeof systemInstructionContent === 'string' ? systemInstructionContent : undefined,
+      tools: tools.length > 0 ? (tools as Tool[]) : undefined,
     };
 
     if (options.stream) {
@@ -148,23 +97,78 @@ export class GoogleProvider implements BaseProvider {
       });
 
       return (async function* () {
-        // generateContentStream は AsyncGenerator を直接返す
+        let currentToolIndex = -1;
         for await (const chunk of responseStream) {
-          const text = chunk.text; // .text はゲッター
-          if (!text) continue;
-          yield {
-            id: 'gemini-stream',
-            created: Date.now(),
-            model: options.model,
-            choices: [
-              {
-                index: 0,
-                delta: { content: text },
-                finish_reason: null,
-              },
-            ],
-            object: 'chat.completion.chunk',
-          } as ChatCompletionChunk;
+          const candidate = chunk.candidates?.[0];
+          if (!candidate?.content?.parts) continue;
+
+          for (const part of candidate.content.parts) {
+            if (part.text) {
+              yield {
+                id: 'gemini-stream',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: part.text },
+                    finish_reason: null,
+                  },
+                ],
+                object: 'chat.completion.chunk',
+              } as ChatCompletionChunk;
+            }
+
+            if (part.functionCall) {
+              currentToolIndex++;
+              yield {
+                id: 'gemini-stream',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: currentToolIndex,
+                          id: `call_${Math.random().toString(36).substring(2, 9)}`,
+                          type: 'function',
+                          function: {
+                            name: part.functionCall.name,
+                            arguments: JSON.stringify(part.functionCall.args),
+                          },
+                        },
+                      ],
+                    },
+                    finish_reason: null,
+                  },
+                ],
+                object: 'chat.completion.chunk',
+              } as ChatCompletionChunk;
+            }
+          }
+
+          if (candidate.finishReason) {
+            yield {
+              id: 'gemini-stream',
+              created: Date.now(),
+              model: options.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {},
+                  finish_reason:
+                    candidate.finishReason === 'STOP'
+                      ? 'stop'
+                      : candidate.finishReason === 'MAX_TOKENS'
+                        ? 'length'
+                        : 'stop',
+                },
+              ],
+              object: 'chat.completion.chunk',
+            } as ChatCompletionChunk;
+          }
         }
       })();
     } else {
@@ -174,7 +178,23 @@ export class GoogleProvider implements BaseProvider {
         config: generationConfig,
       });
 
-      const text = response.text || ''; // .text はゲッター
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      const text = parts
+        .filter((p) => p.text)
+        .map((p) => p.text)
+        .join('');
+
+      const toolCalls = parts
+        .filter((p) => p.functionCall)
+        .map((p) => ({
+          id: `call_${Math.random().toString(36).substring(2, 9)}`,
+          type: 'function' as const,
+          function: {
+            name: p.functionCall?.name || '',
+            arguments: JSON.stringify(p.functionCall?.args || {}),
+          },
+        }));
 
       return {
         id: 'gemini-completion',
@@ -186,14 +206,15 @@ export class GoogleProvider implements BaseProvider {
             index: 0,
             message: {
               role: 'assistant',
-              content: text,
+              content: text || null,
+              tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
             },
-            finish_reason: 'stop',
+            finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
           },
         ],
         usage: {
           prompt_tokens: response.usageMetadata?.promptTokenCount || 0,
-          completion_tokens: response.usageMetadata?.candidatesTokenCount || 0, // responseTokenCount -> candidatesTokenCount
+          completion_tokens: response.usageMetadata?.candidatesTokenCount || 0,
           total_tokens: response.usageMetadata?.totalTokenCount || 0,
         },
       } as ChatCompletion;

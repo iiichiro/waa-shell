@@ -1,13 +1,35 @@
-# 詳細設計: 状態管理 (State Management - Rev 2)
+# 詳細設計: 状態管理 (State Management - Rev 3)
 
-## 1. Expanded Global Stores
+## 1. Expanded Global Stores (Slice Pattern)
 
-### `useAppStore` (UI State)
+Zustand ストアは機能ごとに Slice に分割して管理する。
 
+### `useAppStore`
+
+以下の Slice を統合したストア。
+
+#### `UISlice` (UI State)
+- `activeThreadId`: number | null
+- `isSidebarOpen`: boolean
 - `isSettingsOpen`: boolean
-- `activeSidebarItem`: string
+- `isCommandManagerOpen`: boolean
+- `isFileExplorerOpen`: boolean
+- `isThreadSettingsOpen`: boolean
+- `isLauncher`: boolean
 
-### `useModelsStore` (Model Data)
+#### `SettingsSlice` (User Preferences)
+- `theme`: 'light' | 'dark' | 'system'
+- `sendShortcut`: 'enter' | 'ctrl-enter'
+- `autoGenerateTitle`: boolean
+- `titleGenerationProvider`: string
+- `titleGenerationModel`: string
+
+#### `ToolsSlice` (Tool Configurations)
+- `enabledTools`: Record<string, boolean>
+
+---
+
+### `useModelsStore` (Model Data) - *Future Plan*
 
 - **State**:
   - `providers`: Record<string, Provider>

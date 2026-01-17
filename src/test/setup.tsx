@@ -56,6 +56,22 @@ vi.mock('lucide-react', () => ({
   CheckSquare: () => React.createElement('span', null, 'CheckSquare'),
   Square: () => React.createElement('span', null, 'Square'),
   Wrench: () => React.createElement('span', null, 'Wrench'),
+  RefreshCw: () => React.createElement('span', null, 'RefreshCw'),
+  Zap: () => React.createElement('span', null, 'Zap'),
+  Pencil: () => React.createElement('span', null, 'Pencil'),
+  Copy: () => React.createElement('span', null, 'Copy'),
+  Check: () => React.createElement('span', null, 'Check'),
+  ChevronRight: () => React.createElement('span', null, 'ChevronRight'),
+  ChevronDown: () => React.createElement('span', null, 'ChevronDown'),
+  ArrowUp: () => React.createElement('span', null, 'ArrowUp'),
+  ArrowDown: () => React.createElement('span', null, 'ArrowDown'),
+  Eye: () => React.createElement('span', null, 'Eye'),
+  EyeOff: () => React.createElement('span', null, 'EyeOff'),
+  GripVertical: () => React.createElement('span', null, 'GripVertical'),
+  Send: () => React.createElement('span', null, 'Send'),
+  Paperclip: () => React.createElement('span', null, 'Paperclip'),
+  StopCircle: () => React.createElement('span', null, 'StopCircle'),
+  FolderOpen: () => React.createElement('span', null, 'FolderOpen'),
 }));
 
 // モック: framer-motion (JSDOM でラグやエラーが出るのを防ぐ)

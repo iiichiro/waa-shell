@@ -95,7 +95,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
   return (
     <header
-      className={`${isLauncher ? 'h-11 px-3' : 'h-14 px-4 md:px-6'} border-b flex items-center justify-between bg-background/80 backdrop-blur-xl z-20 sticky top-0 ${isLauncher ? 'cursor-move select-none' : ''}`}
+      className={`${isLauncher ? 'h-11 px-3' : 'h-14 px-4 md:px-6'} border-b flex items-center justify-between bg-background/80 backdrop-blur-xl z-100 sticky top-0 ${isLauncher ? 'cursor-move select-none' : ''}`}
       data-tauri-drag-region={isLauncher ? 'true' : undefined}
     >
       {/* 1. Context Area (Left) */}

@@ -5,17 +5,16 @@ import type {
   ChatCompletionMessage,
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions';
+import type {
+  Response,
+  ResponseCreateParams,
+  ResponseStreamEvent,
+} from 'openai/resources/responses/responses';
 import { db, type Message } from '../db';
 import { getActivePathMessages } from '../db/threads';
 import { dataURLToBlob } from '../utils/image';
 import { fileToBase64 } from './FileService';
-
-import {
-  chatCompletion,
-  createResponseApi,
-  listModels,
-  type ResponseInputItem,
-} from './ModelService';
+import { chatCompletion, createResponse, listModels } from './ModelService';
 import { executeTool, getToolDefinitions } from './ToolService';
 
 interface ThinkingBlock {
@@ -113,6 +112,7 @@ export async function sendMessage(
     attachments?: File[];
     parentId?: number | null;
     onUserMessageSaved?: (messageId: number | null | undefined) => void;
+    onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
   } = {},
 ): Promise<Message | AsyncIterable<ChatCompletionChunk>> {
@@ -270,77 +270,126 @@ export async function sendMessage(
     if (protocol === 'response_api') {
       try {
         // Convert messagesForAi to Response API (Input) format
-        const inputItems: ResponseInputItem[] = messagesForAi.map((m) => {
-          const item: ResponseInputItem = { role: m.role };
-
-          if ('content' in m && m.content) {
+        const inputItems = messagesForAi.map((m) => {
+          if (m.role === 'system') {
+            return {
+              role: 'system',
+              content: [{ type: 'input_text', text: m.content as string }],
+            };
+          }
+          if (m.role === 'user') {
             if (typeof m.content === 'string') {
-              item.content = m.content;
-            } else {
-              // ChatCompletionContentPart[] -> unknown[]
-              item.content = m.content as unknown[];
+              return {
+                role: 'user',
+                content: [{ type: 'input_text', text: m.content }],
+              };
             }
+            return {
+              role: 'user',
+              content: (m.content as ChatCompletionContentPart[]).map((c) => ({
+                ...c,
+                type: c.type === 'text' ? 'input_text' : c.type,
+              })),
+            };
           }
-
-          if (m.role === 'tool' && 'tool_call_id' in m) {
-            item.tool_call_id = m.tool_call_id;
+          if (m.role === 'assistant') {
+            return {
+              role: 'assistant',
+              content:
+                typeof m.content === 'string'
+                  ? [{ type: 'input_text', text: m.content }]
+                  : (m.content as ChatCompletionContentPart[]).map((c) => ({
+                      ...c,
+                      type: c.type === 'text' ? 'input_text' : c.type,
+                    })),
+              tool_calls: m.tool_calls,
+            };
           }
-
-          if (m.role === 'assistant' && 'tool_calls' in m) {
-            item.tool_calls = m.tool_calls;
+          if (m.role === 'tool') {
+            return {
+              role: 'tool',
+              tool_call_id: m.tool_call_id,
+              content: [{ type: 'input_text', text: m.content as string }],
+            };
           }
-
-          return item;
+          // Default fallback
+          return {
+            role: 'user',
+            content: [{ type: 'input_text', text: '' }],
+          };
         });
 
-        const response = await createResponseApi({
+        const result = await createResponse({
           model: modelId,
-          input: inputItems,
+          input: inputItems as unknown as ResponseCreateParams['input'],
+          stream: options.stream,
           tools: tools.length > 0 ? tools : undefined,
           max_tokens: maxTokens,
           extraParams: extraParams,
           signal: options.signal,
         });
 
-        // Handle Response
-        const outputItems = (response.output || []) as {
-          type: string;
-          content?: { type: string; text: string }[];
-          id?: string;
-          function?: { name: string; arguments: string };
-          summary?: { type: string; text: string }[];
-        }[];
-
-        const messageItem = outputItems.find((item) => item.type === 'message');
-        const reasoningItem = outputItems.find((item) => item.type === 'reasoning');
-        // Find tool calls (assuming type 'tool_call' or similar based on typical patterns, or check API spec if available.
-        // Failing specific matching doc, we look for items with type='tool_call')
-        const toolCallItems = outputItems.filter((item) => item.type === 'tool_call');
-
         let content = '';
         let reasoningSummary = '';
+        const responseToolCalls: {
+          id: string;
+          type: 'function';
+          function: { name: string; arguments: string };
+        }[] = [];
+        let outputItems: NonNullable<Response['output']> = [];
 
-        if (messageItem?.content) {
-          for (const c of messageItem.content) {
-            if (c.type === 'output_text') content += c.text;
+        if (Symbol.asyncIterator in result) {
+          // Streaming Case
+
+          const stream = result as AsyncIterable<ResponseStreamEvent>;
+
+          for await (const event of stream) {
+            if (event.type === 'response.output_text.delta') {
+              const delta = (event as { delta?: string }).delta;
+
+              if (delta) {
+                content += delta;
+
+                if (options.onChunk) options.onChunk(delta);
+              }
+            } else if (event.type === 'response.reasoning_text.delta') {
+              const delta = (event as { delta?: string }).delta;
+
+              if (delta) reasoningSummary += delta;
+            } else if (event.type === 'response.completed') {
+              const response = (event as { response?: Response }).response;
+
+              if (response?.output) {
+                outputItems = response.output;
+              }
+            }
+          }
+        } else {
+          // Non-streaming Case
+          const response = result as Response;
+          outputItems = response.output || [];
+
+          for (const item of outputItems) {
+            if (item.type === 'message' && item.content) {
+              for (const c of item.content) {
+                if (c.type === 'output_text') content += c.text;
+              }
+            } else if (item.type === 'reasoning' && item.summary) {
+              for (const s of item.summary) {
+                if (s.type === 'summary_text') reasoningSummary += s.text;
+              }
+            } else if (item.type === 'function_call') {
+              responseToolCalls.push({
+                id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
+                type: 'function' as const,
+                function: {
+                  name: item.name || '',
+                  arguments: item.arguments || '{}',
+                },
+              });
+            }
           }
         }
-
-        if (reasoningItem?.summary) {
-          for (const s of reasoningItem.summary) {
-            if (s.type === 'summary_text') reasoningSummary += s.text;
-          }
-        }
-
-        // Check for tools
-        const responseToolCalls = toolCallItems.map((item) => ({
-          id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
-          type: 'function' as const,
-          function: {
-            name: item.function?.name || '',
-            arguments: item.function?.arguments || '{}',
-          },
-        }));
 
         if (responseToolCalls.length > 0) {
           const assistantId = await db.messages.add({
@@ -357,7 +406,6 @@ export async function sendMessage(
           await db.threads.update(threadId, { activeLeafId: assistantId });
 
           for (const toolCall of responseToolCalls) {
-            if (toolCall.type !== 'function') continue;
             let toolResult = '';
             try {
               const args = JSON.parse(toolCall.function.arguments);
@@ -393,8 +441,12 @@ export async function sendMessage(
 
         const finalId = await db.messages.add(assistantMessage);
 
-        // AI応答から画像を抽出して保存 (Response APIの場合も outputItems から抽出)
-        await extractAndSaveImages(threadId, finalId, outputItems);
+        // AI応答から画像を抽出して保存
+        await extractAndSaveImages(
+          threadId,
+          finalId,
+          outputItems as unknown as Record<string, unknown>[],
+        );
 
         await db.threads.update(threadId, { activeLeafId: finalId });
         assistantMessage.id = finalId;

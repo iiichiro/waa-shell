@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Save, Trash2, Zap } from 'lucide-react';
-import { useState } from 'react';
+import { Pencil, Plus, Save, Search, Trash2, X, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { SlashCommand } from '../../lib/db';
 import {
   deleteSlashCommand,
@@ -17,6 +18,7 @@ import { CommonHeader } from '../layout/CommonHeader';
 export function CommandManager() {
   const queryClient = useQueryClient();
   const [editingCommand, setEditingCommand] = useState<Partial<SlashCommand> | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // コマンド一覧の取得
   const { data: commands = [] } = useQuery({
@@ -80,6 +82,17 @@ export function CommandManager() {
 
   const { isLauncher } = useAppStore();
 
+  const filteredCommands = useMemo(() => {
+    if (!searchQuery) return commands;
+    const lower = searchQuery.toLowerCase();
+    return commands.filter(
+      (cmd) =>
+        cmd.key.toLowerCase().includes(lower) ||
+        cmd.label.toLowerCase().includes(lower) ||
+        cmd.description.toLowerCase().includes(lower),
+    );
+  }, [commands, searchQuery]);
+
   return (
     <div
       className="flex-1 flex flex-col h-full bg-background overflow-hidden animate-in fade-in duration-300"
@@ -100,64 +113,107 @@ export function CommandManager() {
         </button>
       </CommonHeader>
 
-      <div className={`flex-1 overflow-y-auto ${isLauncher ? 'p-3' : 'p-6'}`}>
-        <div
-          className={`max-w-4xl mx-auto grid gap-6 ${isLauncher ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}
-        >
-          {/* コマンド一覧 */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-              登録済みコマンド
-            </h3>
-            {commands.length === 0 && (
-              <div className="p-8 border border-dashed rounded-lg text-center text-muted-foreground text-sm bg-muted/20">
-                コマンドが登録されていません
-              </div>
-            )}
-            <div className="space-y-2">
-              {commands.map((cmd) => (
-                <div
-                  key={cmd.id}
-                  className="p-4 bg-muted/30 rounded-md border hover:border-primary/20 transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <span className="text-primary font-mono text-sm font-bold">/{cmd.key}</span>
-                      <h4 className="text-sm font-semibold text-foreground mt-1">{cmd.label}</h4>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={() => setEditingCommand(cmd)}
-                        className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
-                      >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => cmd.id && deleteMutation.mutate(cmd.id)}
-                        className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{cmd.description}</p>
-                </div>
-              ))}
-            </div>
+      <div className={`flex-1 flex flex-col overflow-hidden ${isLauncher ? 'p-3' : 'p-6'}`}>
+        {/* 検索バー */}
+        <div className="mb-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="コマンドを検索..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-3 py-2 w-full bg-background border rounded-md text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            />
           </div>
+        </div>
 
-          {/* 編集フォーム */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-              {editingCommand?.id ? 'コマンドを編集' : '新規コマンド作成'}
-            </h3>
+        {/* コマンド一覧テーブル */}
+        <div className="flex-1 overflow-y-auto border rounded-md bg-muted/20 custom-scrollbar">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
+              <tr>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">コマンド</th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">表示名</th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">説明</th>
+                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-28 text-center">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredCommands.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="p-8 text-center text-muted-foreground">
+                    コマンドが見つかりません
+                  </td>
+                </tr>
+              ) : (
+                filteredCommands.map((cmd) => (
+                  <tr key={cmd.id} className="hover:bg-muted/50 transition-colors group">
+                    <td className="p-3">
+                      <span className="font-mono text-primary font-bold">/{cmd.key}</span>
+                    </td>
+                    <td className="p-3">
+                      <span className="font-medium text-foreground">{cmd.label}</span>
+                    </td>
+                    <td className="p-3">
+                      <span className="text-sm text-muted-foreground line-clamp-1">
+                        {cmd.description}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => setEditingCommand(cmd)}
+                          className="p-1.5 hover:bg-accent rounded-md text-muted-foreground transition-colors"
+                          title="編集"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('このコマンドを削除しますか？')) {
+                              cmd.id && deleteMutation.mutate(cmd.id);
+                            }
+                          }}
+                          className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors"
+                          title="削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            {editingCommand ? (
-              <div
-                className={`bg-background rounded-lg border border-primary/20 space-y-4 animate-in fade-in slide-in-from-right-4 shadow-lg sticky ${isLauncher ? 'p-4 top-0' : 'p-6 top-20'}`}
-              >
+      {/* 編集モーダル */}
+      {editingCommand &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-2xl bg-background border rounded-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
+              <header className="flex items-center justify-between p-4 border-b bg-muted/20">
+                <h3 className="font-bold text-foreground flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-primary" />
+                  {editingCommand.id ? 'コマンドを編集' : '新規コマンド作成'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingCommand(null)}
+                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </header>
+
+              <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label
@@ -218,7 +274,7 @@ export function CommandManager() {
                   </label>
                   <textarea
                     id="cmd-content"
-                    rows={5}
+                    rows={8}
                     className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono"
                     placeholder="以下の内容を要約して：\n\n{{text}}"
                     value={editingCommand.content}
@@ -265,35 +321,30 @@ export function CommandManager() {
                     ))}
                   </div>
                 )}
+              </div>
 
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingCommand(null)}
-                    className="flex-1 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={!editingCommand.key || !editingCommand.content}
-                    className="flex-1 px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-sm disabled:opacity-50"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>保存する</span>
-                  </button>
-                </div>
+              <div className="p-4 border-t flex justify-end gap-3 bg-muted/30 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEditingCommand(null)}
+                  className="px-4 py-2 rounded-md hover:bg-accent text-sm font-medium text-muted-foreground transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!editingCommand.key || !editingCommand.content}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 text-sm font-medium transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>保存する</span>
+                </button>
               </div>
-            ) : (
-              <div className="h-64 border border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground text-sm space-y-2 bg-muted/10">
-                <p>コマンドを選択して編集するか</p>
-                <p>新しいコマンドを作成してください</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

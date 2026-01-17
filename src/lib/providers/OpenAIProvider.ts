@@ -1,17 +1,20 @@
-import Dexie from 'dexie';
 import OpenAI from 'openai';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
+import type {
+  Response,
+  ResponseCreateParams,
+  ResponseStreamEvent,
+} from 'openai/resources/responses/responses';
+import type { Stream } from 'openai/streaming';
 import type { Provider } from '../db';
-import { db } from '../db';
-import type { ModelInfo } from '../services/ModelService';
-import type { BaseProvider, ChatOptions } from './BaseProvider';
+import { AbstractProvider } from './AbstractProvider';
+import type { ChatOptions, ResponseOptions } from './BaseProvider';
 
-export class OpenAIProvider implements BaseProvider {
+export class OpenAIProvider extends AbstractProvider {
   private client: OpenAI;
-  private provider: Provider;
 
   constructor(provider: Provider) {
-    this.provider = provider;
+    super(provider);
     this.client = new OpenAI({
       baseURL: provider.baseUrl,
       apiKey: provider.apiKey,
@@ -19,79 +22,51 @@ export class OpenAIProvider implements BaseProvider {
     });
   }
 
-  async listModels(): Promise<ModelInfo[]> {
-    const providerIdStr = this.provider.id?.toString() || '';
-    let apiModels: { id: string; object: string }[] = [];
+  protected async fetchApiModels(): Promise<{ id: string; object: string }[]> {
+    const response = await this.client.models.list();
+    return response.data;
+  }
 
-    try {
-      const response = await this.client.models.list();
-      apiModels = response.data;
-    } catch (error) {
-      console.warn(`モデル一覧の取得に失敗しました (Provider: ${this.provider.name})`, error);
+  private processTools(
+    tools: OpenAI.Chat.ChatCompletionTool[] | undefined,
+  ): (OpenAI.Chat.ChatCompletionTool | { type: string })[] | undefined {
+    if (!tools || tools.length === 0) return undefined;
+
+    let processedTools: (OpenAI.Chat.ChatCompletionTool | { type: string })[] = [...tools];
+
+    const hasWebSearch = processedTools.some(
+      (t) =>
+        t.type === 'function' &&
+        'function' in t &&
+        (t as OpenAI.Chat.ChatCompletionFunctionTool).function.name === 'web_search',
+    );
+
+    if (hasWebSearch) {
+      // web_search を除外
+      processedTools = processedTools.filter(
+        (t) =>
+          !(
+            t.type === 'function' &&
+            'function' in t &&
+            (t as OpenAI.Chat.ChatCompletionFunctionTool).function.name === 'web_search'
+          ),
+      );
+
+      // プロバイダーごとにネイティブの検索ツールを追加
+      if (this.provider.type === 'openai-compatible' || this.provider.type === 'azure') {
+        // OpenAI Native Web Search
+        processedTools.push({
+          type: 'web_search',
+        });
+      } else if (this.provider.type === 'litellm' || this.provider.type === 'openrouter') {
+        // LiteLLM / OpenRouter Native Web Search
+        processedTools.push({
+          type: 'web_search_preview',
+        });
+      }
     }
 
-    const manualModels = await db.manualModels.where({ providerId: providerIdStr }).toArray();
-    const configs = await db.modelConfigs
-      .where('[providerId+modelId]')
-      .between([providerIdStr, Dexie.minKey], [providerIdStr, Dexie.maxKey])
-      .toArray();
-
-    const configMap = new Map(configs.map((c) => [c.modelId, c]));
-    const manualModelIds = new Set(manualModels.map((m) => m.uuid));
-
-    const startOrder = 1000;
-    const models: ModelInfo[] = [];
-
-    apiModels.forEach((m, index) => {
-      if (manualModelIds.has(m.id)) return;
-      const config = configMap.get(m.id);
-      models.push({
-        id: m.id,
-        targetModelId: m.id,
-        name: m.id,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        canStream: true,
-        enableStream: config ? config.enableStream : true,
-        isEnabled: config ? config.isEnabled : true,
-        order: config?.order ?? startOrder + index,
-        isCustom: false,
-        isManual: false,
-        supportsTools: config?.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? true,
-        protocol: config?.protocol || 'chat_completion',
-      });
-    });
-
-    manualModels.forEach((m) => {
-      const config = configMap.get(m.uuid);
-      const isOverride = apiModels.some((am) => am.id === m.uuid);
-
-      models.push({
-        id: m.uuid,
-        targetModelId: m.modelId,
-        name: m.name,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        description: m.description,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
-        inputCostPer1k: m.inputCostPer1k,
-        outputCostPer1k: m.outputCostPer1k,
-        canStream: true,
-        enableStream: config?.enableStream ?? m.enableStream ?? true,
-        isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
-        order: config?.order ?? startOrder + apiModels.length + 500,
-        isCustom: false,
-        isManual: true,
-        isApiOverride: isOverride,
-        supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
-        protocol: config?.protocol || m.protocol || 'chat_completion',
-      });
-    });
-
-    return models;
+    return processedTools.length > 0 ? processedTools : undefined;
   }
 
   async chatCompletion(
@@ -99,8 +74,11 @@ export class OpenAIProvider implements BaseProvider {
   ): Promise<ChatCompletion | AsyncIterable<ChatCompletionChunk>> {
     const { extraParams, model, signal, messages, ...params } = options;
 
+    const processedTools = this.processTools(params.tools);
+
     const requestBody = {
       ...params,
+      tools: processedTools,
       messages,
       model: model,
       ...extraParams,
@@ -110,12 +88,39 @@ export class OpenAIProvider implements BaseProvider {
       return this.client.chat.completions.create(
         { ...requestBody, stream: true },
         { signal },
-      ) as Promise<AsyncIterable<ChatCompletionChunk>>;
+      ) as Promise<Stream<ChatCompletionChunk>>;
     }
 
     return this.client.chat.completions.create(
       { ...requestBody, stream: false },
       { signal },
     ) as Promise<ChatCompletion>;
+  }
+
+  async createResponse(
+    options: ResponseOptions,
+  ): Promise<Response | AsyncIterable<ResponseStreamEvent>> {
+    const { extraParams, model, signal, input, ...params } = options;
+
+    const processedTools = this.processTools(params.tools);
+
+    const requestBody = {
+      ...params,
+      tools: processedTools,
+      input,
+      model: model,
+      ...extraParams,
+    };
+
+    if (options.stream) {
+      return this.client.responses.create(
+        { ...requestBody, stream: true } as ResponseCreateParams,
+        { signal },
+      ) as Promise<Stream<ResponseStreamEvent>>;
+    }
+
+    return this.client.responses.create({ ...requestBody, stream: false } as ResponseCreateParams, {
+      signal,
+    }) as Promise<Response>;
   }
 }

@@ -36,27 +36,15 @@
 - **言語とコメント**:
   - コード内のコメントは、そのメソッド・関数・クラスが「何をしているのか」が明確に分かるように **日本語** で記述してください。
   - 変数名や関数名は英語（CamelCase / PascalCase）を使用します。
-- **型安全性 (TypeScript)**:
-  - `any` 型の使用は **厳禁** です。
-  - `as` による型アサーション（キャスト）は原則禁止です。必要な場合は Type Guard (型ガード) や `zod` バリデーションを用いて安全に型を絞り込んでください。
-- **後方互換性とクリーンコード**:
-  - ユーザーからの明示的な指示がない限り、後方互換性のための古いコード（Dead Code / Deprecated）を残さないでください。常に最新の仕様に合わせてクリーンな状態を保ちます。
-
-### 2.3 コード品質とワークフロー
-
-- **ツールチェーン**:
+- **リンタ―とフォーマッター**:
   - Formatter & Linter には **Biome** (`@biomejs/biome`) を使用します。
 - **完了条件**:
   実装タスクを完了とする前に、必ず以下のプロセスを実行・パスすることを確認してください。
   1. **Format & Lint**:
      ```bash
-     npx biome check --write .
+     npm run check
      ```
-  2. **Type Check**:
-     ```bash
-     npm run type-check  # または tsc --noEmit
-     ```
-  3. **Build Verification**:
+  2. **Build Verification**:
      ```bash
      npm run build
      ```

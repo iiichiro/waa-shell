@@ -51,16 +51,6 @@ export function FileExplorer({ threadId }: FileExplorerProps) {
         title={threadId ? 'スレッドのファイル' : 'ファイル管理'}
         onClose={() => setFileExplorerOpen(false)}
       >
-        <div className={`relative ${isLauncher ? 'w-48' : 'w-64'}`}>
-          <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="ファイルを検索..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-sm bg-muted/50 border rounded-md focus:outline-none focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground"
-          />
-        </div>
         <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-md border border-border">
           <button
             type="button"

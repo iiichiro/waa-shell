@@ -1,17 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
-import Dexie from 'dexie';
+import type OpenAI from 'openai';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
-import { db } from '../db';
-import type { ModelInfo } from '../services/ModelService';
-import type { BaseProvider, ChatOptions } from './BaseProvider';
+import { AbstractProvider } from './AbstractProvider';
+import type { ChatOptions } from './BaseProvider';
 
-export class AnthropicProvider implements BaseProvider {
+export class AnthropicProvider extends AbstractProvider {
   private client: Anthropic;
-  private provider: Provider;
 
   constructor(provider: Provider) {
-    this.provider = provider;
+    super(provider);
     this.client = new Anthropic({
       apiKey: provider.apiKey,
       baseURL: provider.baseUrl || undefined,
@@ -19,83 +17,13 @@ export class AnthropicProvider implements BaseProvider {
     });
   }
 
-  async listModels(): Promise<ModelInfo[]> {
-    const providerIdStr = this.provider.id?.toString() || '';
-    let apiModels: { id: string; object: string }[] = [];
-
-    try {
-      const response = await this.client.models.list();
-      // Anthropic SDKのレスポンスを共通の形式に変換
-      apiModels = response.data.map((m) => ({
-        id: m.id,
-        object: 'model',
-      }));
-    } catch (error) {
-      console.warn(`モデル一覧の取得に失敗しました (Provider: ${this.provider.name})`, error);
-    }
-
-    const manualModels = await db.manualModels.where({ providerId: providerIdStr }).toArray();
-    const configs = await db.modelConfigs
-      .where('[providerId+modelId]')
-      .between([providerIdStr, Dexie.minKey], [providerIdStr, Dexie.maxKey])
-      .toArray();
-
-    const configMap = new Map(configs.map((c) => [c.modelId, c]));
-    const manualModelIds = new Set(manualModels.map((m) => m.uuid));
-
-    const startOrder = 1000;
-    const models: ModelInfo[] = [];
-
-    apiModels.forEach((m, index) => {
-      if (manualModelIds.has(m.id)) return;
-      const config = configMap.get(m.id);
-      models.push({
-        id: m.id,
-        targetModelId: m.id,
-        name: m.id,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        canStream: true,
-        enableStream: config ? config.enableStream : true,
-        isEnabled: config ? config.isEnabled : true,
-        order: config?.order ?? startOrder + index,
-        isCustom: false,
-        isManual: false,
-        supportsTools: config?.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? true,
-        protocol: config?.protocol || 'chat_completion',
-      });
-    });
-
-    manualModels.forEach((m) => {
-      const config = configMap.get(m.uuid);
-      const isOverride = apiModels.some((am) => am.id === m.uuid);
-
-      models.push({
-        id: m.uuid,
-        targetModelId: m.modelId,
-        name: m.name,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        description: m.description,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
-        inputCostPer1k: m.inputCostPer1k,
-        outputCostPer1k: m.outputCostPer1k,
-        canStream: true,
-        enableStream: config?.enableStream ?? m.enableStream ?? true,
-        isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
-        order: config?.order ?? startOrder + apiModels.length + 500,
-        isCustom: false,
-        isManual: true,
-        isApiOverride: isOverride,
-        supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
-        protocol: config?.protocol || m.protocol || 'chat_completion',
-      });
-    });
-
-    return models;
+  protected async fetchApiModels(): Promise<{ id: string; object: string }[]> {
+    const response = await this.client.models.list();
+    // Anthropic SDKのレスポンスを共通の形式に変換
+    return response.data.map((m) => ({
+      id: m.id,
+      object: 'model',
+    }));
   }
 
   async chatCompletion(
@@ -105,6 +33,37 @@ export class AnthropicProvider implements BaseProvider {
     const messages = options.messages
       .filter((m) => m.role !== 'system')
       .map((m) => {
+        if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+          const content: Anthropic.MessageParam['content'] = [];
+          if (m.content) {
+            content.push({ type: 'text', text: m.content as string });
+          }
+          for (const tc of m.tool_calls) {
+            if (tc.type === 'function') {
+              content.push({
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.function.name,
+                input: JSON.parse(tc.function.arguments),
+              });
+            }
+          }
+          return { role: 'assistant', content };
+        }
+
+        if (m.role === 'tool') {
+          return {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: (m as OpenAI.Chat.ChatCompletionToolMessageParam).tool_call_id,
+                content: m.content as string,
+              },
+            ],
+          };
+        }
+
         let content: Anthropic.MessageParam['content'];
         if (typeof m.content === 'string') {
           content = m.content;
@@ -139,42 +98,139 @@ export class AnthropicProvider implements BaseProvider {
         };
       }) as Anthropic.MessageParam[];
 
+    const anthropicTools = options.tools
+      ?.map((t) => {
+        if (t.type === 'function' && t.function.name === 'web_search') {
+          // Anthropic native search tool definition based on docs
+          return {
+            type: 'web_search_20250305',
+            name: 'web_search',
+          } as Anthropic.WebSearchTool20250305 & Anthropic.Tool;
+        }
+        if (t.type === 'function') {
+          return {
+            name: t.function.name,
+            description: t.function.description || '',
+            input_schema: t.function.parameters as Anthropic.Tool.InputSchema,
+          };
+        }
+        return null;
+      })
+      .filter((t) => t !== null);
+
     if (options.stream) {
       const stream = await this.client.messages.create({
         model: options.model,
         max_tokens: options.max_tokens || 4096,
         system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
         messages,
+        tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
         stream: true,
         temperature: options.temperature,
         top_p: options.top_p,
       });
 
       return (async function* () {
+        let currentToolIndex = -1;
         for await (const chunk of stream) {
-          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-            yield {
-              id: 'anthropic-stream',
-              object: 'chat.completion.chunk',
-              created: Date.now(),
-              model: options.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: { content: chunk.delta.text },
-                  finish_reason: null,
-                },
-              ],
-            } as ChatCompletionChunk;
+          if (chunk.type === 'message_start') continue;
+          if (chunk.type === 'message_delta') {
+            if (chunk.delta.stop_reason) {
+              yield {
+                id: 'anthropic-stream',
+                object: 'chat.completion.chunk',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {},
+                    finish_reason: chunk.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
+                  },
+                ],
+              } as ChatCompletionChunk;
+            }
+            continue;
+          }
+
+          if (chunk.type === 'content_block_start') {
+            if (chunk.content_block.type === 'tool_use') {
+              currentToolIndex++;
+              yield {
+                id: 'anthropic-stream',
+                object: 'chat.completion.chunk',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: currentToolIndex,
+                          id: chunk.content_block.id,
+                          type: 'function',
+                          function: {
+                            name: chunk.content_block.name,
+                            arguments: '',
+                          },
+                        },
+                      ],
+                    },
+                    finish_reason: null,
+                  },
+                ],
+              } as ChatCompletionChunk;
+            }
+          } else if (chunk.type === 'content_block_delta') {
+            if (chunk.delta.type === 'text_delta') {
+              yield {
+                id: 'anthropic-stream',
+                object: 'chat.completion.chunk',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: chunk.delta.text },
+                    finish_reason: null,
+                  },
+                ],
+              } as ChatCompletionChunk;
+            } else if (chunk.delta.type === 'input_json_delta') {
+              yield {
+                id: 'anthropic-stream',
+                object: 'chat.completion.chunk',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      tool_calls: [
+                        {
+                          index: currentToolIndex,
+                          function: {
+                            arguments: chunk.delta.partial_json,
+                          },
+                        },
+                      ],
+                    },
+                    finish_reason: null,
+                  },
+                ],
+              } as ChatCompletionChunk;
+            }
           }
         }
       })();
     } else {
       const response = await this.client.messages.create({
         model: options.model,
-        max_tokens: options.max_tokens || 4096,
+        max_tokens: options.max_tokens || 4096 * 1000,
         system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
         messages,
+        tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
         stream: false,
         temperature: options.temperature,
         top_p: options.top_p,
@@ -184,6 +240,17 @@ export class AnthropicProvider implements BaseProvider {
         .filter((c): c is Anthropic.TextBlock => c.type === 'text')
         .map((c) => c.text)
         .join('');
+
+      const toolCalls = response.content
+        .filter((c): c is Anthropic.ToolUseBlock => c.type === 'tool_use')
+        .map((c) => ({
+          id: c.id,
+          type: 'function' as const,
+          function: {
+            name: c.name,
+            arguments: JSON.stringify(c.input),
+          },
+        }));
 
       return {
         id: response.id,
@@ -195,9 +262,10 @@ export class AnthropicProvider implements BaseProvider {
             index: 0,
             message: {
               role: 'assistant',
-              content: text,
+              content: text || null,
+              tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
             },
-            finish_reason: 'stop',
+            finish_reason: response.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
           },
         ],
         usage: {

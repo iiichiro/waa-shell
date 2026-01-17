@@ -1,72 +1,142 @@
-import { Wrench } from 'lucide-react';
+import { Globe, Wrench, Zap } from 'lucide-react';
 import { getLocalTools } from '../../lib/services/ToolService';
 import { useAppStore } from '../../store/useAppStore';
 
 export function ToolSettings() {
-  const { enabledTools, setToolEnabled } = useAppStore();
+  const { enabledTools, setToolEnabled, enabledBuiltInTools, setBuiltInToolEnabled } =
+    useAppStore();
   const localTools = getLocalTools();
 
+  const builtInTools = [
+    {
+      id: 'web_search',
+      name: 'Web 検索',
+      description:
+        'プロバイダー（LiteLLM, OpenAI, Anthropic, Google）が提供する Web 検索機能を有効にします。',
+      icon: Globe,
+    },
+  ];
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-right">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-          <Wrench className="w-4 h-4 text-primary" />
-          ローカルツール設定
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          AIが使用できるローカル機能の有効化・無効化を切り替えます。
-        </p>
+    <div className="space-y-10 animate-in fade-in slide-in-from-right">
+      <div className="space-y-6">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" />
+            組み込みツール設定
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            プロバイダー側で提供されるネイティブ機能を有効にします。
+          </p>
+        </div>
+
+        <div className="grid gap-4">
+          {builtInTools.map((tool) => {
+            const isEnabled = enabledBuiltInTools[tool.id] === true;
+            const Icon = tool.icon;
+
+            return (
+              <div
+                key={tool.id}
+                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary/20"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-foreground mb-1.5">{tool.name}</h4>
+                    <p className="text-sm text-muted-foreground mb-2">{tool.description}</p>
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
+                      {tool.id}
+                    </code>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isEnabled}
+                    onClick={() => setBuiltInToolEnabled(tool.id, !isEnabled)}
+                    className={`w-11 h-6 rounded-full border transition-colors relative ${
+                      isEnabled ? 'bg-primary' : 'bg-input'
+                    }`}
+                  >
+                    <span
+                      className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
+                        isEnabled ? 'left-6 bg-background' : 'left-1 bg-primary'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="grid gap-4">
-        {localTools.map((tool) => {
-          const isEnabled = enabledTools[tool.id] !== false; // Default true
+      <div className="space-y-6">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-primary" />
+            ローカルツール設定
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            AIが使用できるローカル機能の有効化・無効化を切り替えます。
+          </p>
+        </div>
 
-          return (
-            <div
-              key={tool.id}
-              className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary/20"
-            >
-              <div className="flex items-start gap-4">
-                <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
-                  <Wrench className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-foreground mb-1.5">{tool.name}</h4>
-                  <p className="text-sm text-muted-foreground mb-2">{tool.description}</p>
-                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
-                    {tool.id}
-                  </code>
-                </div>
-              </div>
+        <div className="grid gap-4">
+          {localTools.map((tool) => {
+            const isEnabled = enabledTools[tool.id] !== false; // Default true
 
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isEnabled}
-                  onClick={() => setToolEnabled(tool.id, !isEnabled)}
-                  className={`w-11 h-6 rounded-full border transition-colors relative ${
-                    isEnabled ? 'bg-primary' : 'bg-input'
-                  }`}
-                >
-                  <span
-                    className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
-                      isEnabled ? 'left-6 bg-background' : 'left-1 bg-primary'
+            return (
+              <div
+                key={tool.id}
+                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary/20"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
+                    <Wrench className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-foreground mb-1.5">{tool.name}</h4>
+                    <p className="text-sm text-muted-foreground mb-2">{tool.description}</p>
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
+                      {tool.id}
+                    </code>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isEnabled}
+                    onClick={() => setToolEnabled(tool.id, !isEnabled)}
+                    className={`w-11 h-6 rounded-full border transition-colors relative ${
+                      isEnabled ? 'bg-primary' : 'bg-input'
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
+                        isEnabled ? 'left-6 bg-background' : 'left-1 bg-primary'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {localTools.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-dashed">
-            <Wrench className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>利用可能なローカルツールはありません</p>
-          </div>
-        )}
+          {localTools.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-dashed">
+              <Wrench className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>利用可能なローカルツールはありません</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

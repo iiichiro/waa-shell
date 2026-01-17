@@ -1,98 +1,25 @@
-import Dexie from 'dexie';
 import { type Message, Ollama } from 'ollama/browser';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
-import { db } from '../db';
-import type { ModelInfo } from '../services/ModelService';
-import type { BaseProvider, ChatOptions } from './BaseProvider';
+import { AbstractProvider } from './AbstractProvider';
+import type { ChatOptions } from './BaseProvider';
 
-export class OllamaProvider implements BaseProvider {
+export class OllamaProvider extends AbstractProvider {
   private client: Ollama;
-  private provider: Provider;
 
   constructor(provider: Provider) {
-    this.provider = provider;
+    super(provider);
     this.client = new Ollama({
       host: provider.baseUrl || 'http://localhost:11434',
     });
   }
 
-  async listModels(): Promise<ModelInfo[]> {
-    const providerIdStr = this.provider.id?.toString() || '';
-    let apiModels: { id: string; object: string }[] = [];
-
-    try {
-      const response = await this.client.list();
-      apiModels = response.models.map((m) => ({
-        id: m.name,
-        object: 'model',
-      }));
-    } catch (error) {
-      console.warn(`モデル一覧の取得に失敗しました (Provider: ${this.provider.name})`, error);
-    }
-
-    const manualModels = await db.manualModels.where({ providerId: providerIdStr }).toArray();
-    const configs = await db.modelConfigs
-      .where('[providerId+modelId]')
-      .between([providerIdStr, Dexie.minKey], [providerIdStr, Dexie.maxKey])
-      .toArray();
-
-    const configMap = new Map(configs.map((c) => [c.modelId, c]));
-    const manualModelIds = new Set(manualModels.map((m) => m.uuid));
-
-    const startOrder = 1000;
-    const models: ModelInfo[] = [];
-
-    apiModels.forEach((m, index) => {
-      if (manualModelIds.has(m.id)) return;
-      const config = configMap.get(m.id);
-      models.push({
-        id: m.id,
-        targetModelId: m.id,
-        name: m.id,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        canStream: true,
-        enableStream: config ? config.enableStream : true,
-        isEnabled: config ? config.isEnabled : true,
-        order: config?.order ?? startOrder + index,
-        isCustom: false,
-        isManual: false,
-        supportsTools: config?.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? true,
-        protocol: config?.protocol || 'chat_completion',
-      });
-    });
-
-    manualModels.forEach((m) => {
-      const config = configMap.get(m.uuid);
-      const isOverride = apiModels.some((am) => am.id === m.uuid);
-
-      models.push({
-        id: m.uuid,
-        targetModelId: m.modelId,
-        name: m.name,
-        provider: this.provider.name,
-        providerId: providerIdStr,
-        description: m.description,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
-        inputCostPer1k: m.inputCostPer1k,
-        outputCostPer1k: m.outputCostPer1k,
-        canStream: true,
-        enableStream: config?.enableStream ?? m.enableStream ?? true,
-        isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
-        order: config?.order ?? startOrder + apiModels.length + 500,
-        isCustom: false,
-        isManual: true,
-        isApiOverride: isOverride,
-        supportsTools: config?.supportsTools ?? m.supportsTools ?? false,
-        supportsImages: config?.supportsImages ?? m.supportsImages ?? true,
-        protocol: config?.protocol || m.protocol || 'chat_completion',
-      });
-    });
-
-    return models;
+  protected async fetchApiModels(): Promise<{ id: string; object: string }[]> {
+    const response = await this.client.list();
+    return response.models.map((m) => ({
+      id: m.name,
+      object: 'model',
+    }));
   }
 
   async chatCompletion(

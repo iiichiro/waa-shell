@@ -28,17 +28,20 @@ waa-shell/
 │   ├── assets/          # 静的リソース
 │   ├── components/      # UI コンポーネント
 │   │   ├── chat/        # チャット機能関連
+│   │   │   ├── message/ # (New) メッセージ表示用サブコンポーネント
 │   │   ├── command/     # スラッシュコマンド管理
 │   │   ├── common/      # 共通コンポーネント
 │   │   ├── layout/      # レイアウト
 │   │   └── settings/    # 設定画面
+│   ├── hooks/           # (New) カスタムフック (useChatInput 等)
 │   ├── lib/             # ビジネスロジック・ライブラリ
 │   │   ├── constants/   # 定数定義
 │   │   ├── db/          # データベース定義 (Dexie.js)
-│   │   ├── providers/   # AI プロバイダー実装 (OpenAI, Google, etc.)
+│   │   ├── providers/   # AI プロバイダー実装 (AbstractProvider, etc.)
 │   │   ├── services/    # アプリケーションサービス
 │   │   └── utils/       # ユーティリティ
 │   ├── store/           # グローバル状態管理 (Zustand)
+│   │   └── slices/      # (New) ストアスライス (UISlice, SettingsSlice, etc.)
 │   ├── test/            # テスト設定 (setup.tsx)
 │   ├── index.css        # テーマ変数 & Tailwind v4
 │   └── App.tsx          # メインエントリー
@@ -77,7 +80,7 @@ npm run tauri build
 
 ## ✨ 主な機能
 
-- **Raycast 風ランチャー**: `Ctrl+Alt+A` で即座にチャット入力を起動。
+- **ランチャーモード**: `Ctrl+Alt+A` で即座にチャット入力を起動。
 - **マルチウィンドウ**: フル機能のメインウィンドウと、コンパクトなランチャーウィンドウを切り替え。
 - **ローカルファースト**: 会話履歴や設定はすべてローカルの IndexedDB に保存。
 - **マルチモーダル**: 画像や PDF のアップロード・読み取りに対応。

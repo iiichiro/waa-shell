@@ -46,7 +46,7 @@ export function getLocalTools(): LocalTool[] {
  * AI に提供するツール定義（OpenAI形式）のリストを取得
  */
 export async function getToolDefinitions(): Promise<OpenAI.Chat.ChatCompletionTool[]> {
-  const { enabledTools } = useAppStore.getState();
+  const { enabledTools, enabledBuiltInTools } = useAppStore.getState();
 
   // 有効なローカルツールのみをフィルタリング
   const activeLocalTools = localToolRegistry.filter(
@@ -56,6 +56,32 @@ export async function getToolDefinitions(): Promise<OpenAI.Chat.ChatCompletionTo
   const localToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = activeLocalTools.map(
     (t) => t.schema,
   );
+
+  // 組み込みツールの追加
+  const builtInToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [];
+  if (enabledBuiltInTools.web_search) {
+    // web_search はプロバイダーごとに形式が異なるため、ここではマーカーとして共通の形式で入れるか、
+    // プロバイダー側でこの名前を見て置換するようにする。
+    // ここでは OpenAI SDK の型に合わせつつ、名前を 'web_search' とする。
+    builtInToolDefinitions.push({
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description: 'Web 検索を実行して最新の情報を取得します。',
+        parameters: {
+          type: 'object',
+          properties: {
+            queries: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '検索クエリのリスト',
+            },
+          },
+          required: ['queries'],
+        },
+      },
+    });
+  }
 
   // MCP サーバから取得したツールを追加
   const mcpToolsRaw = await getAllMcpTools();
@@ -68,7 +94,7 @@ export async function getToolDefinitions(): Promise<OpenAI.Chat.ChatCompletionTo
     },
   }));
 
-  return [...localToolDefinitions, ...mcpTools];
+  return [...localToolDefinitions, ...builtInToolDefinitions, ...mcpTools];
 }
 
 /**

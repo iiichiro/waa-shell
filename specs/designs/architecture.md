@@ -43,18 +43,22 @@ src/
 │   └── ui/               # Design System 実装
 ├── features/             # 機能ドメイン
 │   ├── chat/             # チャット機能 (Message list, Input area)
+│   │   └── components/   # ChatMessage, ChatInputArea etc.
 │   ├── assistants/       # アシスタント管理
 │   ├── prompts/          # プロンプト管理
 │   ├── mcp/              # MCPサーバ設定・ツール管理
 │   └── settings/         # アプリ全体設定
+├── hooks/                # 共通Custom Hooks (useChatInput, etc)
 ├── lib/                  # 外部ライブラリのラッパー・設定 (dexie, axios, etc)
+│   └── providers/        # AI Provider Implementations (AbstractProvider base)
 ├── services/             # 外部通信・ビジネスロジックのコア
 │   ├── llm/              # LLM API Client Implementation
 │   ├── mcp/              # MCP Client Implementation (Client Class)
 │   ├── db/               # Dexie Database Class
 │   ├── cost/             # Cost Calculation Service
 │   └── search/           # Full-text Search Service
-├── hooks/                # 共通Custom Hooks
+├── store/                # Global State Management (Zustand)
+│   └── slices/           # State Slices (UI, Settings, Tools)
 └── types/                # 型定義
 ```
 

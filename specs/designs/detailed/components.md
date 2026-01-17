@@ -51,6 +51,21 @@ src/components/
     - **Logic**: 変更時 `updateThread({ modelConfigOverride: ... })` をコール。
   - `<ThreadSettingsMenu />`: エクスポート、削除、デフォルト設定リセットなど。
 
+#### `<ChatMessage />` (Refactored)
+
+巨大なコンポーネントを分割し、責務を分離。
+
+- **Children**:
+  - `<ChatMessageAvatar />`: ユーザー/AI/システムのアバター表示。
+  - `<ChatMessageHeader />`: 名前、ブランチ切り替えナビゲーション。
+  - `<ChatMessageContent />`: Markdown レンダリング、Thinking Process、ツール実行結果表示。
+  - `<ChatMessageEditor />`: メッセージ編集モード時のテキストエリア。
+  - `<ChatMessageActions />`: コピー、再生成、編集開始ボタン。
+
+#### `<ChatInputArea />`
+
+- **Logic**: 入力状態管理、ファイル選択、ハンドリングロジックは `useChatInput` フックに委譲。
+
 #### `<PromptCommandMenu />`
 
 - **責務**: `/` 入力時にトリガーされるコマンドパレット (`cmdk`等を使用)。

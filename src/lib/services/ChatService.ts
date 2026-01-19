@@ -329,6 +329,17 @@ export async function sendMessage(
           signal: options.signal,
         });
 
+        if (options.stream && result != null && Symbol.asyncIterator in result) {
+          return handleResponseStream(
+            threadId,
+            modelId,
+            modelName,
+            currentParentId,
+            result as AsyncIterable<ResponseStreamEvent>,
+            options,
+          );
+        }
+
         let content = '';
         let reasoningSummary = '';
         const responseToolCalls: {
@@ -338,56 +349,28 @@ export async function sendMessage(
         }[] = [];
         let outputItems: NonNullable<Response['output']> = [];
 
-        if (Symbol.asyncIterator in result) {
-          // Streaming Case
+        // Non-streaming Case
+        const response = result as Response;
+        outputItems = response.output || [];
 
-          const stream = result as AsyncIterable<ResponseStreamEvent>;
-
-          for await (const event of stream) {
-            if (event.type === 'response.output_text.delta') {
-              const delta = (event as { delta?: string }).delta;
-
-              if (delta) {
-                content += delta;
-
-                if (options.onChunk) options.onChunk(delta);
-              }
-            } else if (event.type === 'response.reasoning_text.delta') {
-              const delta = (event as { delta?: string }).delta;
-
-              if (delta) reasoningSummary += delta;
-            } else if (event.type === 'response.completed') {
-              const response = (event as { response?: Response }).response;
-
-              if (response?.output) {
-                outputItems = response.output;
-              }
+        for (const item of outputItems) {
+          if (item.type === 'message' && item.content) {
+            for (const c of item.content) {
+              if (c.type === 'output_text') content += c.text;
             }
-          }
-        } else {
-          // Non-streaming Case
-          const response = result as Response;
-          outputItems = response.output || [];
-
-          for (const item of outputItems) {
-            if (item.type === 'message' && item.content) {
-              for (const c of item.content) {
-                if (c.type === 'output_text') content += c.text;
-              }
-            } else if (item.type === 'reasoning' && item.summary) {
-              for (const s of item.summary) {
-                if (s.type === 'summary_text') reasoningSummary += s.text;
-              }
-            } else if (item.type === 'function_call') {
-              responseToolCalls.push({
-                id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
-                type: 'function' as const,
-                function: {
-                  name: item.name || '',
-                  arguments: item.arguments || '{}',
-                },
-              });
+          } else if (item.type === 'reasoning' && item.summary) {
+            for (const s of item.summary) {
+              if (s.type === 'summary_text') reasoningSummary += s.text;
             }
+          } else if (item.type === 'function_call') {
+            responseToolCalls.push({
+              id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
+              type: 'function' as const,
+              function: {
+                name: item.name || '',
+                arguments: item.arguments || '{}',
+              },
+            });
           }
         }
 
@@ -736,6 +719,141 @@ async function* handleStreamResponse(
     if (accumulatedImages.length > 0) {
       await extractAndSaveImages(threadId, finalId, accumulatedImages);
     }
+
+    await db.threads.update(threadId, { activeLeafId: finalId });
+  }
+}
+
+async function* handleResponseStream(
+  threadId: number,
+  modelId: string,
+  modelName: string,
+  parentId: number | null | undefined,
+  stream: AsyncIterable<ResponseStreamEvent>,
+  options: { onChunk?: (chunk: string) => void } = {},
+): AsyncIterable<ChatCompletionChunk> {
+  let fullContent = '';
+  let reasoningSummary = '';
+  const responseToolCalls: {
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }[] = [];
+  let outputItems: NonNullable<Response['output']> = [];
+  let currentParentId = parentId;
+
+  for await (const event of stream) {
+    if (event.type === 'response.output_text.delta') {
+      const delta = (event as { delta?: string }).delta;
+      if (delta) {
+        fullContent += delta;
+        if (options.onChunk) options.onChunk(delta);
+        yield {
+          id: '',
+          choices: [{ delta: { content: delta }, finish_reason: null, index: 0 }],
+          created: Date.now(),
+          model: modelName,
+          object: 'chat.completion.chunk',
+        };
+      }
+    } else if (event.type === 'response.reasoning_text.delta') {
+      const delta = (event as { delta?: string }).delta;
+      if (delta) {
+        reasoningSummary += delta;
+        yield {
+          id: '',
+          // biome-ignore lint/suspicious/noExplicitAny: LiteLLM拡張考慮
+          choices: [{ delta: { reasoning_content: delta } as any, finish_reason: null, index: 0 }],
+          created: Date.now(),
+          model: modelName,
+          object: 'chat.completion.chunk',
+        };
+      }
+    } else if (event.type === 'response.completed') {
+      const response = (event as { response?: Response }).response;
+      if (response?.output) {
+        outputItems = response.output;
+        for (const item of outputItems) {
+          if (item.type === 'function_call') {
+            responseToolCalls.push({
+              id: item.id || `call_${Math.random().toString(36).slice(2, 11)}`,
+              type: 'function' as const,
+              function: {
+                name: item.name || '',
+                arguments: item.arguments || '{}',
+              },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (responseToolCalls.length > 0) {
+    const assistantId = await db.messages.add({
+      threadId,
+      role: 'assistant',
+      content: fullContent || '',
+      reasoningSummary: reasoningSummary,
+      tool_calls: responseToolCalls,
+      model: modelName,
+      parentId: currentParentId,
+      createdAt: new Date(),
+    });
+    currentParentId = assistantId;
+    await db.threads.update(threadId, { activeLeafId: assistantId });
+
+    for (const toolCall of responseToolCalls) {
+      let toolResult = '';
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        toolResult = await executeTool(toolCall.function.name, args);
+      } catch (e) {
+        toolResult = `Error: ${String(e)}`;
+      }
+
+      const toolId = await db.messages.add({
+        threadId,
+        role: 'tool',
+        content: toolResult,
+        tool_call_id: toolCall.id,
+        parentId: currentParentId,
+        createdAt: new Date(),
+      });
+      currentParentId = toolId;
+      await db.threads.update(threadId, { activeLeafId: toolId });
+    }
+
+    const nextResponse = await sendMessage(threadId, '', modelId, {
+      stream: true,
+      parentId: currentParentId,
+    });
+    if (Symbol.asyncIterator in nextResponse) {
+      const iterator = nextResponse as AsyncIterable<ChatCompletionChunk>;
+      for await (const chunk of iterator) {
+        yield chunk;
+      }
+    }
+  } else {
+    // Save Assistant Message (No tools)
+    const assistantMessage: Message = {
+      threadId,
+      role: 'assistant',
+      content: fullContent || '(No content)',
+      reasoningSummary: reasoningSummary,
+      parentId: currentParentId,
+      model: modelName,
+      createdAt: new Date(),
+    };
+
+    const finalId = await db.messages.add(assistantMessage);
+
+    // AI応答から画像を抽出して保存
+    await extractAndSaveImages(
+      threadId,
+      finalId,
+      outputItems as unknown as Record<string, unknown>[],
+    );
 
     await db.threads.update(threadId, { activeLeafId: finalId });
   }

@@ -225,12 +225,24 @@ export function ModelSettings() {
 
       if (data.id) {
         // 更新 (ID指定)
-        const { id, ...update } = manualData;
+        const { id: _, ...update } = manualData;
         await db.manualModels.update(data.id, update);
       } else {
         // 新規作成
         await db.manualModels.add(manualData);
       }
+
+      // ModelConfigも同期して更新 (一覧表示はこのテーブルの設定を参照するため)
+      await db.modelConfigs.put({
+        providerId: manualData.providerId,
+        modelId: manualData.uuid, // UUIDをキーにする
+        isEnabled: manualData.isEnabled,
+        enableStream: manualData.enableStream ?? true,
+        supportsTools: manualData.supportsTools,
+        supportsImages: manualData.supportsImages,
+        protocol: manualData.protocol,
+        // 順序は既存があれば維持、なければモデル末尾などのデフォルト
+      });
     },
     onSuccess: () => {
       setManualModalOpen(false);

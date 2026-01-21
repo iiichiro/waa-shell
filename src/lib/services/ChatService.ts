@@ -878,8 +878,12 @@ export async function regenerateMessage(
 
   // AIメッセージの親（通常はユーザーメッセージ）を起点に再送
   // parentIdがundefined（最初のメッセージ）の場合はnullを渡すことで、正しくルートブランチとして作成させる
+  const allModels = await listModels();
+  const currentModel = allModels.find((m) => m.id === modelId);
+  const shouldStream = currentModel?.enableStream ?? false;
+
   return sendMessage(threadId, '', modelId, {
-    stream: true,
+    stream: shouldStream,
     parentId: message.parentId ?? null,
     onUserMessageSaved: options.onUserMessageSaved,
     signal: options.signal,

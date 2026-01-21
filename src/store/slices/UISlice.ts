@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import { INITIAL_LAUNCHER_STATE, INITIAL_SIDEBAR_OPEN } from '../../lib/constants/UIConstants';
 
 export interface UISlice {
   activeThreadId: number | null;
@@ -27,9 +28,9 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
       isCommandManagerOpen: false,
       isFileExplorerOpen: false,
     }),
-  isSidebarOpen: true,
+  isSidebarOpen: INITIAL_SIDEBAR_OPEN,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
-  isLauncher: false,
+  isLauncher: INITIAL_LAUNCHER_STATE,
   setIsLauncher: (isLauncher) => set({ isLauncher }),
   isSettingsOpen: false,
   setSettingsOpen: (isOpen) =>

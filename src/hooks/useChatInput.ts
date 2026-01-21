@@ -6,6 +6,11 @@ import {
   useRef,
   useState,
 } from 'react';
+import { MAX_INPUT_HISTORY } from '../lib/constants/ConfigConstants';
+import {
+  TEXTAREA_MAX_HEIGHT_LAUNCHER,
+  TEXTAREA_MAX_HEIGHT_NORMAL,
+} from '../lib/constants/UIConstants';
 
 export interface SelectedFile {
   file: File;
@@ -39,8 +44,8 @@ export function useChatInput({
       textarea.style.height = 'auto'; // 一旦リセット
       const scrollHeight = textarea.scrollHeight;
       // ランチャーモードかつ履歴なし時はウィンドウサイズに合わせるため制限を緩くするが
-      // ここでは見た目の高さ調整のみ行う (ウィンドウ最大300px - ヘッダー等80px = 220px)
-      const maxHeight = isLauncher ? 220 : 240;
+      // ここでは見た目の高さ調整のみ行う
+      const maxHeight = isLauncher ? TEXTAREA_MAX_HEIGHT_LAUNCHER : TEXTAREA_MAX_HEIGHT_NORMAL;
       textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
     }
   }, [inputText, isLauncher]);
@@ -96,6 +101,10 @@ export function useChatInput({
     }
   };
 
+  // 履歴管理
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1); // -1: 最新（入力中）、0以上: 履歴のインデックス
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {
       if (handleWindowClose) {
@@ -103,6 +112,52 @@ export function useChatInput({
         return;
       }
     }
+
+    // 履歴ナビゲーション (Up)
+    if (e.key === 'ArrowUp') {
+      // カーソルが先頭にある、または履歴編集中
+      if (
+        internalTextareaRef.current?.selectionStart === 0 &&
+        internalTextareaRef.current?.selectionEnd === 0
+      ) {
+        if (history.length > 0) {
+          e.preventDefault();
+          const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+          setHistoryIndex(newIndex);
+          setInputText(history[newIndex]);
+          // カーソルを末尾へ
+          setTimeout(() => {
+            if (internalTextareaRef.current) {
+              internalTextareaRef.current.selectionStart = internalTextareaRef.current.value.length;
+              internalTextareaRef.current.selectionEnd = internalTextareaRef.current.value.length;
+            }
+          }, 0);
+        }
+      }
+    }
+
+    // 履歴ナビゲーション (Down)
+    if (e.key === 'ArrowDown') {
+      // カーソルが末尾にある、または履歴編集中
+      const length = internalTextareaRef.current?.value.length || 0;
+      if (
+        internalTextareaRef.current?.selectionStart === length &&
+        internalTextareaRef.current?.selectionEnd === length
+      ) {
+        if (historyIndex !== -1) {
+          e.preventDefault();
+          const newIndex = historyIndex + 1;
+          if (newIndex >= history.length) {
+            setHistoryIndex(-1);
+            setInputText(''); // 最新に戻る（入力内容は保持していない簡易実装）
+          } else {
+            setHistoryIndex(newIndex);
+            setInputText(history[newIndex]);
+          }
+        }
+      }
+    }
+
     if (e.key === 'Enter') {
       // IME変換中は送信しない
       if (e.nativeEvent.isComposing) return;
@@ -123,6 +178,15 @@ export function useChatInput({
 
   const handleSend = () => {
     if (!inputText.trim() && selectedFiles.length === 0) return;
+
+    // 履歴に追加 (重複排除して末尾に追加)
+    if (inputText.trim()) {
+      setHistory((prev) => {
+        const reset = prev.filter((t) => t !== inputText.trim());
+        return [...reset, inputText.trim()].slice(-MAX_INPUT_HISTORY);
+      });
+    }
+    setHistoryIndex(-1);
 
     onSend(
       inputText,

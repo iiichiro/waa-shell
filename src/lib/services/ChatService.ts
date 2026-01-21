@@ -32,6 +32,7 @@ interface ExtendedChatCompletionDelta {
   content?: string | null | unknown[];
   reasoning_content?: string;
   image_url?: { url: string };
+  images?: { image_url: { url: string } }[];
   tool_calls?: unknown[];
 }
 
@@ -627,6 +628,19 @@ async function* handleStreamResponse(
         `${deltaAny.image_url.url.substring(0, 50)}...`,
       );
       accumulatedImages.push({ type: 'image_url', image_url: deltaAny.image_url });
+    }
+
+    // images配列形式への対応 (LiteLLM等)
+    if (deltaAny.images && Array.isArray(deltaAny.images)) {
+      for (const img of deltaAny.images) {
+        if (img.image_url) {
+          console.log(
+            'Image found in delta.images array:',
+            `${img.image_url.url.substring(0, 50)}...`,
+          );
+          accumulatedImages.push({ type: 'image_url', image_url: img.image_url });
+        }
+      }
     }
 
     if (deltaAny.reasoning_content) {

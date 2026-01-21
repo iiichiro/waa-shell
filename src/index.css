@@ -84,7 +84,10 @@
 @layer base {
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/30 overflow-hidden;
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family:
+      "Yu Gothic UI", "Meiryo", "Hiragino Kaku Gothic ProN", "Inter", system-ui, -apple-system,
+      sans-serif;
+    line-height: 1.6;
   }
 
   /* グローバルカスタムスクロールバー */

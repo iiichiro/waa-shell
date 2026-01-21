@@ -1,4 +1,9 @@
 import type { StateCreator } from 'zustand';
+import {
+  DEFAULT_AUTO_GENERATE_TITLE,
+  DEFAULT_SEND_SHORTCUT,
+  DEFAULT_THEME,
+} from '../../lib/constants/ConfigConstants';
 
 export interface SettingsSlice {
   sendShortcut: 'enter' | 'ctrl-enter';
@@ -14,11 +19,11 @@ export interface SettingsSlice {
 }
 
 export const createSettingsSlice: StateCreator<SettingsSlice, [], [], SettingsSlice> = (set) => ({
-  sendShortcut: 'ctrl-enter',
+  sendShortcut: DEFAULT_SEND_SHORTCUT,
   setSendShortcut: (shortcut) => set({ sendShortcut: shortcut }),
-  theme: 'system',
+  theme: DEFAULT_THEME,
   setTheme: (theme) => set({ theme }),
-  autoGenerateTitle: false,
+  autoGenerateTitle: DEFAULT_AUTO_GENERATE_TITLE,
   setAutoGenerateTitle: (autoGenerate) => set({ autoGenerateTitle: autoGenerate }),
   titleGenerationProvider: '',
   setTitleGenerationProvider: (providerId) => set({ titleGenerationProvider: providerId }),

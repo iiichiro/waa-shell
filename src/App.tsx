@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatHeader } from './components/chat/ChatHeader';
 import { ChatInputArea } from './components/chat/ChatInputArea';
 import { ChatMessage } from './components/chat/ChatMessage';
+import { ScrollToBottomButton } from './components/chat/ScrollToBottomButton';
 import { ThreadSettingsModal } from './components/chat/ThreadSettingsModal';
 import { CommandManager } from './components/command/CommandManager';
 import { SlashCommandForm } from './components/command/SlashCommandForm';
@@ -13,6 +14,12 @@ import { FileExplorer } from './components/common/FileExplorer';
 import { Sidebar } from './components/layout/Sidebar';
 import { SettingsView } from './components/settings/SettingsView';
 import { useChatInput } from './hooks/useChatInput';
+import {
+  LAUNCHER_MAX_HEIGHT,
+  LAUNCHER_MIN_HEIGHT,
+  LAUNCHER_SUGGEST_MIN_HEIGHT,
+  WINDOW_DEFAULT_HEIGHT_EXPANDED,
+} from './lib/constants/UIConstants';
 import { db, type Message, type SlashCommand, type Thread, type ThreadSettings } from './lib/db';
 import { getActivePathMessages, getMessageBranchInfo } from './lib/db/threads';
 import {
@@ -72,6 +79,64 @@ export default function App() {
   // AbortController for cancelling generation (per thread)
   const abortControllersRef = useRef<Map<number, AbortController>>(new Map());
 
+  const {
+    data: models = [],
+    isLoading: isModelsLoading,
+    isRefetching: isModelsRefetching,
+  } = useQuery<ModelInfo[]>({
+    queryKey: ['models'],
+    queryFn: () => listModels(),
+  });
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ['providers'],
+    queryFn: () => db.providers.toArray(),
+  });
+
+  const handleWindowClose = useCallback(async () => {
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const appWindow = getCurrentWindow();
+      if (isLauncher) {
+        await appWindow.hide();
+      } else {
+        await appWindow.close();
+      }
+    }
+  }, [isLauncher]);
+
+  const handleModelChange = useCallback(
+    async (modelId: string, providerId?: string) => {
+      setSelectedModelId(modelId);
+      if (providerId) setSelectedProviderId(providerId);
+
+      if (!activeThreadId) {
+        // 新規チャット時はドラフト設定も更新して同期を保つ
+        setDraftThreadSettings((prev) => ({
+          ...prev,
+          modelId,
+          providerId: providerId || prev.providerId,
+        }));
+      } else {
+        // 既存スレッドの場合は即座に設定を更新
+        const existing = await db.threadSettings.where({ threadId: activeThreadId }).first();
+        if (existing?.id) {
+          await db.threadSettings.update(existing.id, {
+            modelId,
+            providerId: providerId || existing.providerId,
+          });
+        } else {
+          await db.threadSettings.add({
+            threadId: activeThreadId,
+            modelId,
+            providerId,
+          } as ThreadSettings);
+        }
+        queryClient.invalidateQueries({ queryKey: ['threadSettings', activeThreadId] });
+      }
+    },
+    [activeThreadId, queryClient],
+  );
+
   // テーマの適用
   useEffect(() => {
     const applyTheme = () => {
@@ -130,64 +195,6 @@ export default function App() {
       unlisten?.();
     };
   }, [queryClient, activeThreadId]);
-
-  const {
-    data: models = [],
-    isLoading: isModelsLoading,
-    isRefetching: isModelsRefetching,
-  } = useQuery<ModelInfo[]>({
-    queryKey: ['models'],
-    queryFn: () => listModels(),
-  });
-
-  const { data: providers = [] } = useQuery({
-    queryKey: ['providers'],
-    queryFn: () => db.providers.toArray(),
-  });
-
-  const handleWindowClose = useCallback(async () => {
-    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      const appWindow = getCurrentWindow();
-      if (isLauncher) {
-        await appWindow.hide();
-      } else {
-        await appWindow.close();
-      }
-    }
-  }, [isLauncher]);
-
-  const handleModelChange = useCallback(
-    async (modelId: string, providerId?: string) => {
-      setSelectedModelId(modelId);
-      if (providerId) setSelectedProviderId(providerId);
-
-      if (!activeThreadId) {
-        // 新規チャット時はドラフト設定も更新して同期を保つ
-        setDraftThreadSettings((prev) => ({
-          ...prev,
-          modelId,
-          providerId: providerId || prev.providerId,
-        }));
-      } else {
-        // 既存スレッドの場合は即座に設定を更新
-        const existing = await db.threadSettings.where({ threadId: activeThreadId }).first();
-        if (existing?.id) {
-          await db.threadSettings.update(existing.id, {
-            modelId,
-            providerId: providerId || existing.providerId,
-          });
-        } else {
-          await db.threadSettings.add({
-            threadId: activeThreadId,
-            modelId,
-            providerId,
-          } as ThreadSettings);
-        }
-        queryClient.invalidateQueries({ queryKey: ['threadSettings', activeThreadId] });
-      }
-    },
-    [activeThreadId, queryClient],
-  );
 
   useEffect(() => {
     if (models.length > 0 && selectedModelId) {
@@ -258,56 +265,6 @@ export default function App() {
     }
   }, [setActiveThreadId, setIsLauncher]);
 
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        // 子画面が開いている場合はそちらを閉じる
-        if (isThreadSettingsOpen) {
-          setThreadSettingsOpen(false);
-          return;
-        }
-        if (isSettingsOpen) {
-          setSettingsOpen(false);
-          return;
-        }
-        if (isCommandManagerOpen) {
-          setCommandManagerOpen(false);
-          return;
-        }
-        if (isFileExplorerOpen) {
-          setFileExplorerOpen(false);
-          return;
-        }
-
-        // サジェスト等が閉じている場合はウィンドウを隠す（ランチャーモード時）
-        if (!showSuggest && !selectedCommand && isLauncher) {
-          handleWindowClose();
-        }
-        if (isToolMenuOpen) {
-          setIsToolMenuOpen(false);
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [
-    isLauncher,
-    showSuggest,
-    selectedCommand,
-    isSettingsOpen,
-    setSettingsOpen,
-    isCommandManagerOpen,
-    setCommandManagerOpen,
-    isFileExplorerOpen,
-    setFileExplorerOpen,
-    isThreadSettingsOpen,
-    setThreadSettingsOpen,
-    isToolMenuOpen,
-    handleWindowClose,
-  ]);
-
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', activeThreadId],
     queryFn: () => (activeThreadId ? getActivePathMessages(activeThreadId) : []),
@@ -326,10 +283,78 @@ export default function App() {
     }
   }, [activeThread]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: メッセージが更新されたときにスクロールするため
+  // Scroll & Auto-scroll logic
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // メッセージが更新されたときにスクロール制御
+  // biome-ignore lint/correctness/useExhaustiveDependencies: メッセージ更新時のその他依存関係整理
   useEffect(() => {
+    // ユーザーが自発的に上にスクロールしている場合は勝手にスクロールしない
+    if (isAtBottom) {
+      scrollToBottom();
+    } else {
+      // 下にいないのに新しいメッセージが来た -> ボタンを表示して通知
+      // ただしストリーミング中は頻繁に更新されるため、ストリーミング開始時などは考慮が必要
+      // ここでは簡易的に「一番下じゃないならボタンを出す」
+      setShowScrollButton(true);
+    }
+  }, [messages, streamingContent, activeThreadId]);
+
+  // スクロールイベントハンドラ
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+
+    // 余裕を持って判定 (10px)
+    const newIsAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsAtBottom(newIsAtBottom);
+
+    if (newIsAtBottom) {
+      setShowScrollButton(false);
+    } else {
+      // メッセージが画面外にある程度ある場合のみボタンを表示する (ランチャーモード対策)
+      // ランチャーモードでメッセージが少ない場合はスクロール自体が発生しないか、距離が短い
+      const hasScrollableContent = scrollHeight > clientHeight + 20;
+      if (hasScrollableContent) {
+        setShowScrollButton(true);
+      } else {
+        setShowScrollButton(false);
+      }
+    }
+  };
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeThreadId]);
+    setIsAtBottom(true);
+    setShowScrollButton(false);
+  }, []);
+
+  // スレッド切り替え時は強制的に下にスクロール
+  // biome-ignore lint/correctness/useExhaustiveDependencies: スレッド切り替え時にスクロール
+  useEffect(() => {
+    scrollToBottom();
+  }, [activeThreadId, scrollToBottom]);
+
+  // ユーザーが送信した直後は強制スクロールするためのハンドリング
+  // messagesの更新検知だけだと、AIの応答（ストリーミング開始）と区別がつかないことがあるため
+  // 送信アクション（handleSend）内で明示的にフラグを立てるか、
+  // ここで「最後のメッセージがUserなら強制スクロール」というLogicを入れる
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.role === 'user') {
+        scrollToBottom();
+      }
+    }
+  }, [messages, scrollToBottom]);
+
+  // メッセージ追加時のスクロール制御 (Old logic removed/merged above)
+  const prevMessagesLengthRef = useRef(messages.length);
+  useEffect(() => {
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages]);
 
   const handleTitleUpdate = async () => {
     if (activeThreadId && titleInput.trim()) {
@@ -406,7 +431,7 @@ export default function App() {
           parentId,
           onUserMessageSaved: async () => {
             await queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            // スクロールはuseEffectで行うため削除
           },
           signal: abortController.signal,
         });
@@ -523,67 +548,6 @@ export default function App() {
     handleWindowClose,
   });
 
-  // ランチャーモード：ウィンドウサイズ調整
-  useEffect(() => {
-    if (!isLauncher) return;
-    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
-
-    const resizeWindow = async () => {
-      try {
-        const { LogicalSize } = await import('@tauri-apps/api/dpi');
-        const appWindow = getCurrentWindow();
-        const currentSize = await appWindow.innerSize();
-        const factor = await appWindow.scaleFactor();
-        const currentLogicalSize = currentSize.toLogical(factor);
-
-        const shouldExpand =
-          messages.length > 0 ||
-          activeThreadId ||
-          streamingContent ||
-          sendMutation.isPending ||
-          isSettingsOpen ||
-          isCommandManagerOpen ||
-          isFileExplorerOpen;
-
-        if (shouldExpand) {
-          await appWindow.setSize(new LogicalSize(currentLogicalSize.width, 800));
-        } else {
-          const lineCount = (inputText.match(/\n/g) || []).length + 1;
-          const baseHeight = 120;
-          const lineHeight = 20;
-          const maxCompactHeight = 300;
-          const height = Math.min(baseHeight + (lineCount - 1) * lineHeight, maxCompactHeight);
-          await appWindow.setSize(new LogicalSize(currentLogicalSize.width, height));
-        }
-      } catch (e) {
-        console.error('Failed to resize window:', e);
-      }
-    };
-
-    resizeWindow();
-  }, [
-    isLauncher,
-    messages.length,
-    activeThreadId,
-    streamingContent,
-    sendMutation.isPending,
-    inputText,
-    isSettingsOpen,
-    isCommandManagerOpen,
-    isFileExplorerOpen,
-  ]);
-
-  // スラッシュコマンド監視
-  useEffect(() => {
-    if (inputText.startsWith('/') && !selectedCommand) {
-      const query = inputText.slice(1).split(' ')[0] || '';
-      setSuggestQuery(query);
-      setShowSuggest(true);
-    } else {
-      setShowSuggest(false);
-    }
-  }, [inputText, selectedCommand]);
-
   const handleCommandSelect = (command: SlashCommand) => {
     setShowSuggest(false);
     if (command.variables.length > 0) {
@@ -609,97 +573,116 @@ export default function App() {
     }
   }, [activeThreadId, queryClient]);
 
-  const handleCopy = (content: string) => {
+  const handleCopy = useCallback((content: string) => {
     navigator.clipboard.writeText(content).then(() => {});
-  };
+  }, []);
 
-  const handleEdit = async (
-    messageId: number,
-    content: string,
-    type: 'save' | 'regenerate' | 'branch',
-    removedFileIds: number[] = [],
-    newFiles: File[] = [],
-  ) => {
-    const message = await db.messages.get(messageId);
-    if (!message) return;
+  // Ref pattern to break dependency chain and prevent re-renders
+  const handleSendRef = useRef(handleSend);
+  useEffect(() => {
+    handleSendRef.current = handleSend;
+  });
 
-    if (type === 'save') {
-      await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
-      queryClient.invalidateQueries({ queryKey: ['messages', activeThreadId] });
-      return;
-    }
+  const handleRegenerate = useCallback(
+    async (messageId: number, type: 'regenerate' | 'branch' = 'branch') => {
+      if (!activeThreadId) return;
+      if (sendMutation.isPending) return;
 
-    if (type === 'regenerate') {
-      await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
-      if (activeThreadId) {
-        const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
-        const children = allInThread.filter((m) => m.parentId === messageId);
-        for (const child of children) {
-          if (child.id) {
-            await deleteMessageAndDescendants(activeThreadId, child.id);
-          }
-        }
-        handleRegenerate(messageId, 'regenerate');
-      }
-      return;
-    }
-
-    // type === 'branch'
-    const existingFiles = await db.files.where('messageId').equals(messageId).toArray();
-    const keptFiles = existingFiles
-      .filter((f) => f.id !== undefined && !removedFileIds.includes(f.id))
-      .map((f) => new File([f.blob], f.fileName, { type: f.mimeType }));
-
-    handleSend(message.parentId ?? null, content, [...keptFiles, ...newFiles]);
-  };
-
-  const handleRegenerate = async (messageId: number, type: 'regenerate' | 'branch' = 'branch') => {
-    if (!activeThreadId) return;
-    if (sendMutation.isPending) return;
-
-    const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
-    const currentModel = models.find(
-      (m) => m.id === targetModelId && (!selectedProviderId || m.providerId === selectedProviderId),
-    );
-    if (currentModel && !currentModel.isEnabled) {
-      alert(
-        `モデル「${currentModel.name}」は無効化されているため送信できません。モデル設定から有効化するか、別のモデルを選択してください。`,
+      const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
+      const currentModel = models.find(
+        (m) =>
+          m.id === targetModelId && (!selectedProviderId || m.providerId === selectedProviderId),
       );
-      return;
-    }
 
-    const message = await db.messages.get(messageId);
-    if (!message) return;
+      if (currentModel && !currentModel.isEnabled) {
+        alert(
+          `モデル「${currentModel.name}」は無効化されているため送信できません。モデル設定から有効化するか、別のモデルを選択してください。`,
+        );
+        return;
+      }
 
-    let parentIdForRegenerate: number | null;
+      const message = await db.messages.get(messageId);
+      if (!message) return;
 
-    if (message.role === 'user') {
-      if (type === 'regenerate') {
-        const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
-        const children = allInThread.filter((m) => m.parentId === messageId);
-        for (const child of children) {
-          if (child.id) {
-            await deleteMessageAndDescendants(activeThreadId, child.id);
+      let parentIdForRegenerate: number | null;
+
+      if (message.role === 'user') {
+        if (type === 'regenerate') {
+          const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
+          const children = allInThread.filter((m) => m.parentId === messageId);
+          for (const child of children) {
+            if (child.id) {
+              await deleteMessageAndDescendants(activeThreadId, child.id);
+            }
           }
         }
+        parentIdForRegenerate = messageId;
+      } else {
+        if (type === 'regenerate') {
+          await deleteMessageAndDescendants(activeThreadId, messageId);
+        }
+        parentIdForRegenerate = message.parentId ?? null;
       }
-      parentIdForRegenerate = messageId;
-    } else {
+
+      await queryClient.invalidateQueries({
+        queryKey: ['messages', activeThreadId],
+      });
+
+      sendMutation.mutate({
+        text: '',
+        attachments: [],
+        parentId: parentIdForRegenerate,
+        isRegenerate: true,
+      });
+    },
+    [activeThreadId, sendMutation, selectedModelId, selectedProviderId, models, queryClient],
+  );
+
+  const handleEdit = useCallback(
+    async (
+      messageId: number,
+      content: string,
+      type: 'save' | 'regenerate' | 'branch',
+      removedFileIds: number[] = [],
+      newFiles: File[] = [],
+    ) => {
+      const message = await db.messages.get(messageId);
+      if (!message) return;
+
+      if (type === 'save') {
+        await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
+        queryClient.invalidateQueries({
+          queryKey: ['messages', activeThreadId],
+        });
+        return;
+      }
+
       if (type === 'regenerate') {
-        await deleteMessageAndDescendants(activeThreadId, messageId);
+        await updateMessageWithFiles(messageId, content, removedFileIds, newFiles);
+        if (activeThreadId) {
+          const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
+          const children = allInThread.filter((m) => m.parentId === messageId);
+          for (const child of children) {
+            if (child.id) {
+              await deleteMessageAndDescendants(activeThreadId, child.id);
+            }
+          }
+          handleRegenerate(messageId, 'regenerate');
+        }
+        return;
       }
-      parentIdForRegenerate = message.parentId ?? null;
-    }
 
-    await queryClient.invalidateQueries({ queryKey: ['messages', activeThreadId] });
+      // type === 'branch'
+      const existingFiles = await db.files.where('messageId').equals(messageId).toArray();
+      const keptFiles = existingFiles
+        .filter((f) => f.id !== undefined && !removedFileIds.includes(f.id))
+        .map((f) => new File([f.blob], f.fileName, { type: f.mimeType }));
 
-    sendMutation.mutate({
-      text: '',
-      attachments: [],
-      parentId: parentIdForRegenerate,
-      isRegenerate: true,
-    });
-  };
+      // Use Ref to call handleSend without adding it as a dependency
+      handleSendRef.current(message.parentId ?? null, content, [...keptFiles, ...newFiles]);
+    },
+    [activeThreadId, queryClient, handleRegenerate],
+  );
 
   const handleSwitchBranch = async (targetMessageId: number) => {
     if (!activeThreadId) return;
@@ -708,11 +691,11 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['thread', activeThreadId] });
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     setActiveThreadId(null);
     setInputText('');
     setDraftThreadSettings({});
-  };
+  }, [setActiveThreadId, setInputText]);
 
   const handleDraftSave = (settings: Partial<ThreadSettings>) => {
     setDraftThreadSettings(settings);
@@ -720,6 +703,174 @@ export default function App() {
       setSelectedModelId(settings.modelId);
     }
   };
+
+  // ランチャーモード：ウィンドウサイズ調整
+  useEffect(() => {
+    if (!isLauncher) return;
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+
+    const resizeWindow = async () => {
+      try {
+        const { LogicalSize } = await import('@tauri-apps/api/dpi');
+        const appWindow = getCurrentWindow();
+        const currentSize = await appWindow.innerSize();
+        const factor = await appWindow.scaleFactor();
+        const currentLogicalSize = currentSize.toLogical(factor);
+
+        const shouldExpand =
+          messages.length > 0 ||
+          activeThreadId ||
+          streamingContent ||
+          sendMutation.isPending ||
+          isSettingsOpen ||
+          isCommandManagerOpen ||
+          isFileExplorerOpen;
+
+        if (shouldExpand) {
+          await appWindow.setSize(
+            new LogicalSize(currentLogicalSize.width, WINDOW_DEFAULT_HEIGHT_EXPANDED),
+          );
+        } else {
+          // DOMの高さを計測してウィンドウサイズを決定
+          // 少し余裕を持たせる (+20px)
+          const contentHeight = document.documentElement.scrollHeight;
+          const minHeight = LAUNCHER_MIN_HEIGHT;
+          const maxCompactHeight = LAUNCHER_MAX_HEIGHT;
+
+          let targetHeight = Math.max(minHeight, Math.min(contentHeight + 20, maxCompactHeight));
+
+          // サジェスト表示中は少し広げる
+          if (showSuggest) {
+            targetHeight = Math.max(targetHeight, LAUNCHER_SUGGEST_MIN_HEIGHT);
+          }
+
+          await appWindow.setSize(new LogicalSize(currentLogicalSize.width, targetHeight));
+        }
+      } catch (e) {
+        console.error('Failed to resize window:', e);
+      }
+    };
+
+    // リサイズ監視用のObserver
+    const observer = new ResizeObserver(() => {
+      resizeWindow();
+    });
+    observer.observe(document.body);
+
+    resizeWindow();
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    isLauncher,
+    messages.length,
+    activeThreadId,
+    streamingContent,
+    sendMutation.isPending,
+    isSettingsOpen,
+    isCommandManagerOpen,
+    isFileExplorerOpen,
+    showSuggest,
+  ]);
+
+  // スラッシュコマンド監視
+  useEffect(() => {
+    if (inputText.startsWith('/') && !selectedCommand) {
+      const query = inputText.slice(1).split(' ')[0] || '';
+      setSuggestQuery(query);
+      setShowSuggest(true);
+    } else {
+      setShowSuggest(false);
+    }
+  }, [inputText, selectedCommand]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // 子画面が開いている場合はそちらを閉じる
+        if (isThreadSettingsOpen) {
+          setThreadSettingsOpen(false);
+          return;
+        }
+        if (isSettingsOpen) {
+          setSettingsOpen(false);
+          return;
+        }
+        if (isCommandManagerOpen) {
+          setCommandManagerOpen(false);
+          return;
+        }
+        if (isFileExplorerOpen) {
+          setFileExplorerOpen(false);
+          return;
+        }
+
+        // サジェスト等が閉じている場合はウィンドウを隠す（ランチャーモード時）
+        if (!showSuggest && !selectedCommand && isLauncher) {
+          handleWindowClose();
+        }
+        if (isToolMenuOpen) {
+          setIsToolMenuOpen(false);
+          return;
+        }
+      }
+
+      // 新規チャット (Ctrl + N)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        handleNewChat();
+        return;
+      }
+
+      // 設定 (Ctrl + ,)
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
+      // サイドバーのトグル (Ctrl + [)
+      if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+        e.preventDefault();
+        toggleSidebar();
+        return;
+      }
+
+      // モデル切り替え (Ctrl + M)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
+        e.preventDefault();
+        const enabledModels = models.filter((m) => m.isEnabled);
+        if (enabledModels.length === 0) return;
+
+        const currentIndex = enabledModels.findIndex((m) => m.id === selectedModelId);
+        const nextIndex = (currentIndex + 1) % enabledModels.length;
+        setSelectedModelId(enabledModels[nextIndex].id);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    isLauncher,
+    showSuggest,
+    selectedCommand,
+    isSettingsOpen,
+    setSettingsOpen,
+    isCommandManagerOpen,
+    setCommandManagerOpen,
+    isFileExplorerOpen,
+    setFileExplorerOpen,
+    isThreadSettingsOpen,
+    setThreadSettingsOpen,
+    isToolMenuOpen,
+    handleWindowClose,
+    handleNewChat,
+    toggleSidebar,
+    models,
+    selectedModelId,
+  ]);
 
   const placeholderText =
     sendShortcut === 'enter'
@@ -785,6 +936,8 @@ export default function App() {
           />
 
           <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
             key={activeThreadId || 'new-thread'}
             className={`flex-1 overflow-y-auto space-y-6 md:space-y-8 scroll-smooth custom-scrollbar ${isLauncher ? 'px-3 py-3' : 'px-4 py-4 md:px-8'}`}
           >
@@ -829,7 +982,7 @@ export default function App() {
                   createdAt: new Date(),
                   model: 'AI',
                 }}
-                isThinking
+                isThinking={true}
                 onCopy={() => {}}
               />
             )}
@@ -848,6 +1001,16 @@ export default function App() {
             <div className="h-4" />
             <div ref={messagesEndRef} />
           </div>
+
+          <ScrollToBottomButton
+            show={showScrollButton}
+            onClick={scrollToBottom}
+            hasNewMessage={
+              !isAtBottom &&
+              (!!streamingContent ||
+                (messages.length > 0 && messages[messages.length - 1].role !== 'user'))
+            }
+          />
 
           <div
             className={`pt-0 bg-gradient-to-t from-background via-background/95 to-transparent z-10 w-full shrink-0 ${isLauncher ? 'p-1.5' : 'p-2.5 md:px-5 md:pb-3'}`}
@@ -959,6 +1122,7 @@ function MessageItem({
 
   return (
     <ChatMessage
+      id={`message-${message.id}`}
       message={message}
       attachments={attachments}
       onCopy={onCopy}
@@ -970,7 +1134,7 @@ function MessageItem({
           ? {
               current: branchInfo.current,
               total: branchInfo.total,
-              onSwitch: (index) => {
+              onSwitch: (index: number) => {
                 const target = branchInfo.siblings[index - 1];
                 if (target?.id) onSwitchBranch(target.id);
               },

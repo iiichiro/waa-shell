@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { LocalFile, Message } from '../../lib/db';
 import { blobToDataURL } from '../../lib/utils/image';
 import { FilePreviewModal } from '../common/FilePreviewModal';
@@ -28,18 +28,20 @@ interface ChatMessageProps {
     onSwitch: (index: number) => void;
   };
   isModelEnabled?: boolean;
+  id?: string;
 }
 
-export function ChatMessage({
+function _ChatMessage({
   message,
-  isStreaming = false,
-  isThinking = false,
+  isStreaming,
+  isThinking,
   attachments,
   onCopy,
   onEdit,
   onRegenerate,
   branchInfo,
-  isModelEnabled = true,
+  isModelEnabled,
+  id,
 }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(
@@ -71,6 +73,7 @@ export function ChatMessage({
 
   return (
     <div
+      id={id}
       className={`flex gap-3 md:gap-4 mx-auto w-full group ${isStreaming ? 'animate-pulse' : ''}`}
     >
       <ChatMessageAvatar message={message} />
@@ -96,7 +99,7 @@ export function ChatMessage({
           ) : (
             <ChatMessageContent
               message={message}
-              isThinking={isThinking}
+              isThinking={!!isThinking}
               attachments={attachments}
               onPreviewFile={setPreviewFile}
             />
@@ -105,7 +108,7 @@ export function ChatMessage({
           {!isEditing && !isStreaming && (
             <ChatMessageActions
               message={message}
-              isModelEnabled={isModelEnabled}
+              isModelEnabled={!!isModelEnabled}
               onCopy={onCopy}
               onRegenerate={onRegenerate}
               onEdit={onEdit ? () => setIsEditing(true) : undefined}
@@ -118,3 +121,22 @@ export function ChatMessage({
     </div>
   );
 }
+
+export const ChatMessage = React.memo(_ChatMessage, (prev, next) => {
+  if (prev.isStreaming !== next.isStreaming) return false;
+  if (prev.isThinking !== next.isThinking) return false;
+  if (prev.isModelEnabled !== next.isModelEnabled) return false;
+  if (prev.message.id !== next.message.id) return false;
+  if (prev.message.content !== next.message.content) return false;
+  if (prev.message.role !== next.message.role) return false;
+  // attachments comparison (shallow check for length + ids usually enough for performance)
+  if (prev.attachments?.length !== next.attachments?.length) return false;
+  // branchInfo comparison
+  if (prev.branchInfo?.current !== next.branchInfo?.current) return false;
+  if (prev.branchInfo?.total !== next.branchInfo?.total) return false;
+
+  return true;
+});
+
+// To match original export style properly, we need to import React or adjust the definition.
+// Added `import React from 'react';` at the top in previous steps if not present.

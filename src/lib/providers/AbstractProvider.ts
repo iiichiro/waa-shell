@@ -1,16 +1,16 @@
 import Dexie from 'dexie';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Response, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import { db, type Provider, type ProviderType } from '../db';
+import {
+  DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS,
+  DEFAULT_ENABLE_STREAM,
+  DEFAULT_PROTOCOL,
+  DEFAULT_SUPPORTS_IMAGES,
+  DEFAULT_SUPPORTS_TOOLS,
+} from '../constants/ConfigConstants';
+import { db, type Provider } from '../db';
 import type { ModelInfo } from '../services/ModelService';
 import type { BaseProvider, ChatOptions, ResponseOptions } from './BaseProvider';
-
-const DFAULT_ENABLE_STREAM = true;
-const DEFAULT_SUPPORTS_TOOLS = true;
-const DEFAULT_SUPPORTS_IMAGES = true;
-const DEFAULT_PROTOCOL = 'chat_completion';
-
-const DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS: ProviderType[] = ['ollama'] as const;
 
 export abstract class AbstractProvider implements BaseProvider {
   constructor(protected provider: Provider) {}
@@ -77,7 +77,7 @@ export abstract class AbstractProvider implements BaseProvider {
         provider: this.provider.name,
         providerId: providerIdStr,
         canStream: true,
-        enableStream: config ? config.enableStream : DFAULT_ENABLE_STREAM,
+        enableStream: config ? config.enableStream : DEFAULT_ENABLE_STREAM,
         isEnabled: config ? config.isEnabled : true,
         order: config?.order ?? startOrder + index,
         isCustom: false,
@@ -108,7 +108,7 @@ export abstract class AbstractProvider implements BaseProvider {
         inputCostPer1k: m.inputCostPer1k,
         outputCostPer1k: m.outputCostPer1k,
         canStream: true,
-        enableStream: config?.enableStream ?? m.enableStream ?? DFAULT_ENABLE_STREAM,
+        enableStream: config?.enableStream ?? m.enableStream ?? DEFAULT_ENABLE_STREAM,
         isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
         order: config?.order ?? startOrder + apiModels.length + 500,
         isCustom: false,

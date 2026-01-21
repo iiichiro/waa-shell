@@ -10,6 +10,7 @@ import type {
   ResponseCreateParams,
   ResponseStreamEvent,
 } from 'openai/resources/responses/responses';
+import { DEFAULT_SUPPORTS_IMAGES, DEFAULT_SUPPORTS_TOOLS } from '../constants/ConfigConstants';
 import { db, type Message } from '../db';
 import { getActivePathMessages } from '../db/threads';
 import { dataURLToBlob } from '../utils/image';
@@ -206,9 +207,13 @@ export async function sendMessage(
     const messagesForAi: ChatCompletionMessageParam[] = [];
 
     const modelName = currentModel ? currentModel.name : modelId;
-    // デフォルトはtrueとして扱う（不明なモデルの場合など）
-    const supportsTools = currentModel ? currentModel.supportsTools !== false : true;
-    const supportsImages = currentModel ? currentModel.supportsImages !== false : true;
+    // デフォルトは定数として扱う（不明なモデルの場合など）
+    const supportsTools = currentModel
+      ? currentModel.supportsTools !== false
+      : DEFAULT_SUPPORTS_TOOLS;
+    const supportsImages = currentModel
+      ? currentModel.supportsImages !== false
+      : DEFAULT_SUPPORTS_IMAGES;
     const protocol = currentModel?.protocol || 'chat_completion';
 
     if (systemPrompt) {
@@ -709,7 +714,7 @@ async function* handleStreamResponse(
     }
 
     const nextResponse = await sendMessage(threadId, '', modelId, {
-      stream: true,
+      stream: true, // stream=trueの場合の処理のため、true固定
       parentId: currentParentId,
     });
     if (Symbol.asyncIterator in nextResponse) {

@@ -1,4 +1,4 @@
-import { type Message, Ollama } from 'ollama/browser';
+import { type ChatRequest, type Message, Ollama } from 'ollama/browser';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
 import { AbstractProvider } from './AbstractProvider';
@@ -28,9 +28,29 @@ export class OllamaProvider extends AbstractProvider {
     // OpenAI messages -> Ollama messages
     const messages = options.messages.map((m) => {
       const ollamaMessage: Message = {
-        role: m.role as 'user' | 'assistant' | 'system',
+        role: m.role as 'user' | 'assistant' | 'system' | 'tool',
         content: '',
       };
+
+      if (m.role === 'tool') {
+        // tool_call_id は Ollama では直接的な同等物がない場合があるが
+        // メッセージとして送信するために content を設定
+        ollamaMessage.content = typeof m.content === 'string' ? m.content : '';
+        return ollamaMessage;
+      }
+
+      if (m.role === 'assistant' && m.tool_calls) {
+        // assistant の tool_calls をマッピング
+        // 型エラー回避のため型チェックとキャストを行う
+        ollamaMessage.tool_calls = m.tool_calls
+          .filter((tc) => tc.type === 'function')
+          .map((tc) => ({
+            function: {
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments),
+            },
+          }));
+      }
 
       if (typeof m.content === 'string') {
         ollamaMessage.content = m.content;
@@ -59,25 +79,18 @@ export class OllamaProvider extends AbstractProvider {
     });
 
     if (options.stream) {
-      const response = await (
-        this.client.chat as (args: unknown) => Promise<{
-          abort: () => void;
-          [Symbol.asyncIterator]: () => AsyncIterator<{
-            message: { content: string; thinking?: string };
-            done: boolean;
-          }>;
-        }>
-      )({
+      const response = await this.client.chat({
+        ...options.extraParams,
         model: options.model,
         messages,
         stream: true,
-        think: true,
         options: {
           ...options.extraParams,
           num_predict: options.max_tokens,
         },
-        signal: options.signal,
-      });
+        tools: options.tools?.filter((t) => t.type === 'function'),
+        signal: options.signal, // AbortSignal対応
+      } as unknown as ChatRequest & { stream: true });
 
       // 信号の中断をハンドル
       const abortHandler = () => response.abort();
@@ -99,8 +112,21 @@ export class OllamaProvider extends AbstractProvider {
                   delta: {
                     content: chunk.message.content,
                     reasoning_content: chunk.message.thinking, // reasoning_content として渡す
+                    tool_calls: chunk.message.tool_calls?.map((tc, i) => ({
+                      index: i,
+                      id: `call_${Math.random().toString(36).slice(2, 11)}`,
+                      type: 'function',
+                      function: {
+                        name: tc.function.name,
+                        arguments: JSON.stringify(tc.function.arguments),
+                      },
+                    })),
                   } as unknown as ChatCompletionChunk.Choice.Delta,
-                  finish_reason: chunk.done ? 'stop' : null,
+                  finish_reason: chunk.done
+                    ? chunk.message.tool_calls
+                      ? 'tool_calls'
+                      : 'stop'
+                    : null,
                 },
               ],
             } as ChatCompletionChunk;
@@ -112,23 +138,18 @@ export class OllamaProvider extends AbstractProvider {
         }
       })();
     } else {
-      const response = await (
-        this.client.chat as (args: unknown) => Promise<{
-          message: { content: string; thinking?: string };
-          prompt_eval_count?: number;
-          eval_count?: number;
-        }>
-      )({
+      const response = await this.client.chat({
+        ...options.extraParams,
         model: options.model,
         messages,
         stream: false,
-        think: true,
         options: {
           ...options.extraParams,
           num_predict: options.max_tokens,
         },
-        signal: options.signal,
-      });
+        tools: options.tools?.filter((t) => t.type === 'function'),
+        signal: options.signal, // AbortSignal対応
+      } as unknown as ChatRequest & { stream?: false | undefined });
 
       return {
         id: 'ollama-completion',
@@ -142,8 +163,16 @@ export class OllamaProvider extends AbstractProvider {
               role: 'assistant',
               content: response.message.content,
               reasoning_content: response.message.thinking, // reasoning_content として渡す
+              tool_calls: response.message.tool_calls?.map((tc) => ({
+                id: `call_${Math.random().toString(36).slice(2, 11)}`,
+                type: 'function',
+                function: {
+                  name: tc.function.name,
+                  arguments: JSON.stringify(tc.function.arguments),
+                },
+              })),
             } as unknown as ChatCompletion.Choice,
-            finish_reason: 'stop',
+            finish_reason: response.message.tool_calls ? 'tool_calls' : 'stop',
           },
         ],
         usage: {

@@ -1,8 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { Database, Keyboard, MousePointer2, Trash2, Wand2 } from 'lucide-react';
+import { Database, Download, Keyboard, MousePointer2, Trash2, Upload, Wand2 } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { db } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
+import {
+  type ClearOptions,
+  clearPartialData,
+  type ExportOptions,
+  exportData,
+  importData,
+} from '../../lib/utils/backup';
 import { useAppStore } from '../../store/useAppStore';
+import { Switch } from '../common/Switch';
 
 export function GeneralSettings() {
   const {
@@ -17,6 +26,29 @@ export function GeneralSettings() {
     titleGenerationModel,
     setTitleGenerationModel,
   } = useAppStore();
+
+  const [exportOptions, setExportOptions] = useState<ExportOptions>({
+    history: true,
+    providers: true,
+    models: true, // プロバイダーと分離されたため、デフォルトで両方ONにする
+    tools: true,
+    mcp: true,
+    slashCommands: true,
+    general: true,
+  });
+
+  const [clearOptions, setClearOptions] = useState<ClearOptions>({
+    history: true,
+    files: true,
+    providers: true,
+    models: true,
+    tools: true,
+    mcp: true,
+    slashCommands: true,
+    general: true,
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: providers = [] } = useQuery({
     queryKey: ['providers'],
@@ -48,6 +80,43 @@ export function GeneralSettings() {
     }
     return true;
   });
+
+  const handleExport = async () => {
+    try {
+      const data = await exportData(exportOptions);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `waashell_settings_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export failed:', e);
+      alert('エクスポートに失敗しました。');
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('設定をインポートしますか？選択された項目の既存データは上書きされます。')) {
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      await importData(text);
+      alert('インポートが完了しました。アプリを再読み込みします。');
+      window.location.reload();
+    } catch (e) {
+      console.error('Import failed:', e);
+      alert('インポートに失敗しました。ファイル形式が正しくない可能性があります。');
+    }
+    e.target.value = '';
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-right">
@@ -175,21 +244,7 @@ export function GeneralSettings() {
               </p>
             </div>
             <div className="flex items-center">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={autoGenerateTitle}
-                onClick={() => setAutoGenerateTitle(!autoGenerateTitle)}
-                className={`w-11 h-6 rounded-full border transition-colors relative ${
-                  autoGenerateTitle ? 'bg-primary' : 'bg-input'
-                }`}
-              >
-                <span
-                  className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
-                    autoGenerateTitle ? 'left-6 bg-background' : 'left-1 bg-primary'
-                  }`}
-                />
-              </button>
+              <Switch checked={autoGenerateTitle} onChange={setAutoGenerateTitle} />
             </div>
           </div>
 
@@ -251,43 +306,149 @@ export function GeneralSettings() {
           )}
         </div>
       </section>
+
+      <section>
+        <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Database className="w-5 h-5 text-primary" />
+          <span>設定のバックアップと復元</span>
+        </h3>
+        <div className="bg-muted/30 border rounded-lg p-6 space-y-6">
+          <div className="space-y-4">
+            <h4 className="font-medium text-foreground">対象の項目を選択</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[
+                { key: 'history', label: 'チャット履歴＋ファイル履歴' },
+                { key: 'providers', label: 'プロバイダー設定' },
+                { key: 'models', label: 'モデル設定' },
+                { key: 'tools', label: 'ツール設定' },
+                { key: 'mcp', label: 'MCP設定' },
+                { key: 'slashCommands', label: 'スラッシュコマンド設定' },
+                { key: 'general', label: '一般設定' },
+              ].map((item) => (
+                <label
+                  key={item.key}
+                  className="flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-md cursor-pointer hover:bg-muted transition-colors select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={exportOptions[item.key as keyof ExportOptions]}
+                    onChange={(e) =>
+                      setExportOptions({ ...exportOptions, [item.key]: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  />
+                  <span className="text-sm font-medium">{item.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4 pt-2 border-t">
+            <button
+              type="button"
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-sm font-medium transition-colors shadow-sm"
+            >
+              <Download className="w-4 h-4" />
+              エクスポート実行
+            </button>
+
+            <div className="relative">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImport}
+                accept=".json"
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 bg-background text-foreground hover:bg-muted border border-border rounded-md text-sm font-medium transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                インポート実行
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs text-muted-foreground bg-primary/5 p-4 rounded-md border border-primary/10 leading-relaxed shadow-sm">
+            <p className="font-semibold text-primary mb-1">💡 ヒント</p>
+            <p>
+              • エクスポートしたファイルにはAPIキーが含まれます。取り扱いには十分ご注意ください。
+            </p>
+            <p>• インポートを実行すると、選択された項目の現在のデータは完全に上書きされます。</p>
+          </div>
+        </div>
+      </section>
+
       <section>
         <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <Database className="w-5 h-5 text-primary" />
           <span>データ管理</span>
         </h3>
         <div className="bg-muted/30 border rounded-lg p-6 space-y-6">
-          <div className="flex flex-col items-start justify-between gap-2">
-            <div className="space-y-1">
-              <h4 className="font-medium text-destructive">全データを消去</h4>
+          <div className="space-y-4">
+            <h4 className="font-medium text-destructive">削除する項目を選択</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[
+                { key: 'history', label: 'チャット履歴' },
+                { key: 'files', label: 'ファイル履歴' },
+                { key: 'providers', label: 'プロバイダー設定' },
+                { key: 'models', label: 'モデル設定' },
+                { key: 'tools', label: 'ツール設定' },
+                { key: 'mcp', label: 'MCP設定' },
+                { key: 'slashCommands', label: 'スラッシュコマンド設定' },
+                { key: 'general', label: '一般設定' },
+              ].map((item) => (
+                <label
+                  key={item.key}
+                  className="flex items-center gap-3 p-3 bg-muted/50 border border-border rounded-md cursor-pointer hover:bg-muted transition-colors select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={clearOptions[item.key as keyof ClearOptions]}
+                    onChange={(e) =>
+                      setClearOptions({ ...clearOptions, [item.key]: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded border-gray-300 text-destructive focus:ring-destructive cursor-pointer accent-destructive"
+                  />
+                  <span className="text-sm font-medium">{item.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-start justify-between gap-2 pt-4 border-t border-border">
+            <div className="space-y-1 mb-2">
               <p className="text-sm text-muted-foreground">
-                アプリケーションの全てのデータ（スレッド、メッセージ、設定）を削除し、初期状態に戻します。
+                選択したデータを削除し、アプリケーションを初期状態に戻します。この操作は取り消せません。
               </p>
             </div>
             <button
               type="button"
+              disabled={!Object.values(clearOptions).some((v) => v)}
               onClick={async () => {
-                if (
-                  !confirm(
-                    '本当に全てのデータを消去しますか？\nこの操作は取り消せません。スレッド、メッセージ、設定など全てのデータが失われます。',
-                  )
-                ) {
+                const selectedCount = Object.values(clearOptions).filter(Boolean).length;
+                if (selectedCount === 0) return;
+
+                if (!confirm('選択したデータを削除しますか？\nこの操作は取り消せません。')) {
                   return;
                 }
 
                 try {
-                  await db.delete();
-                  localStorage.clear();
+                  await clearPartialData(clearOptions);
+                  alert('データの削除が完了しました。アプリを再読み込みします。');
                   window.location.reload();
                 } catch (e) {
                   console.error('Failed to clear data:', e);
-                  alert('データの消去に失敗しました。');
+                  alert('データの削除に失敗しました。');
                 }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-border rounded-md text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               <Trash2 className="w-4 h-4" />
-              全データを消去
+              選択したデータを削除
             </button>
           </div>
         </div>

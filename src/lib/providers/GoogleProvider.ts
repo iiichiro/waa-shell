@@ -80,9 +80,8 @@ export class GoogleProvider extends AbstractProvider {
       }
     }
     const generationConfig = {
+      ...options.extraParams,
       maxOutputTokens: options.max_tokens,
-      temperature: options.temperature,
-      topP: options.top_p,
       // systemInstruction は config 内に配置
       systemInstruction:
         typeof systemInstructionContent === 'string' ? systemInstructionContent : undefined,

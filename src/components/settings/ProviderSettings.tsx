@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GripVertical, Plus, Save, Trash2 } from 'lucide-react';
+import { GripVertical, Plus, Puzzle, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import type { Provider, ProviderType } from '../../lib/db';
 import {
@@ -26,6 +26,9 @@ import {
   updateProvidersOrder,
   upsertProvider,
 } from '../../lib/services/ProviderService';
+import { EmptyState } from '../common/EmptyState';
+import { Modal } from '../common/Modal';
+import { Switch } from '../common/Switch';
 
 const PROVIDER_TYPES: ProviderType[] = [
   'openai-compatible',
@@ -117,7 +120,7 @@ export function ProviderSettings() {
       name: '',
       baseUrl: '',
       apiKey: '',
-      type: 'google',
+      type: PROVIDER_TYPES[0],
       requiresApiKey: true,
       isActive: true,
     });
@@ -172,147 +175,23 @@ export function ProviderSettings() {
             </SortableContext>
           </DndContext>
           {providers.length === 0 && (
-            <div className="p-8 text-center text-muted-foreground border-2 border-dashed rounded-lg">
-              プロバイダーが設定されていません
-            </div>
+            <EmptyState
+              icon={Puzzle}
+              title="プロバイダーが設定されていません"
+              description="[新規追加] から、AIモデルを利用するためのプロバイダーを登録してください。"
+            />
           )}
         </div>
       </section>
 
-      {/* 編集フォーム */}
-      {editingProvider && (
-        <div className="p-6 bg-background rounded-lg border border-primary/20 space-y-4 animate-in fade-in slide-in-from-bottom-2 shadow-lg">
-          <h4 className="font-bold text-foreground flex items-center gap-2 mb-4">
-            {editingProvider.id ? 'プロバイダーを編集' : '新しいプロバイダーを追加'}
-          </h4>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label htmlFor="p-name" className="text-xs font-semibold text-muted-foreground">
-                表示名
-              </label>
-              <input
-                id="p-name"
-                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="OpenAI, Local LLM など"
-                value={editingProvider.name}
-                onChange={(e) => setEditingProvider({ ...editingProvider, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="p-type" className="text-xs font-semibold text-muted-foreground">
-                プロバイダータイプ
-              </label>
-              <select
-                id="p-type"
-                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={editingProvider.type}
-                onChange={(e) => {
-                  const newType = e.target.value as ProviderType;
-                  setEditingProvider({
-                    ...editingProvider,
-                    type: newType,
-                    supportsResponseApi: RESPONSE_API_SUPPORTED_TYPES.includes(newType)
-                      ? editingProvider.supportsResponseApi
-                      : false,
-                  });
-                }}
-              >
-                {PROVIDER_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {editingProvider.type !== 'google' && (
-            <div className="space-y-1.5">
-              <label htmlFor="p-url" className="text-xs font-semibold text-muted-foreground">
-                API ベースURL{' '}
-                {editingProvider.type !== 'anthropic' && (
-                  <span className="text-destructive">*</span>
-                )}
-              </label>
-              <input
-                id="p-url"
-                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={
-                  editingProvider.type === 'anthropic'
-                    ? 'https://api.anthropic.com (省略可)'
-                    : 'https://api.openai.com/v1'
-                }
-                value={editingProvider.baseUrl}
-                onChange={(e) =>
-                  setEditingProvider({ ...editingProvider, baseUrl: e.target.value })
-                }
-                required={editingProvider.type !== 'anthropic'}
-              />
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label htmlFor="p-key" className="text-xs font-semibold text-muted-foreground">
-                API キー{' '}
-                {editingProvider.requiresApiKey && <span className="text-destructive">*</span>}
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingProvider.requiresApiKey}
-                  onChange={(e) =>
-                    setEditingProvider({
-                      ...editingProvider,
-                      requiresApiKey: e.target.checked,
-                    })
-                  }
-                  className="w-3 h-3 rounded bg-background text-primary focus:ring-ring"
-                />
-                <span className="text-[10px] text-muted-foreground">必須とする</span>
-              </label>
-            </div>
-            <input
-              id="p-key"
-              type="password"
-              className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
-              placeholder={editingProvider.requiresApiKey ? '必須です' : 'sk- ... (空欄可)'}
-              value={editingProvider.apiKey}
-              onChange={(e) => setEditingProvider({ ...editingProvider, apiKey: e.target.value })}
-              required={editingProvider.requiresApiKey}
-            />
-          </div>
-
-          {RESPONSE_API_SUPPORTED_TYPES.includes(editingProvider.type) && (
-            <div className="flex items-center gap-2 pt-2">
-              <input
-                id="p-response-api"
-                type="checkbox"
-                className="w-4 h-4 rounded bg-background text-primary focus:ring-ring"
-                checked={editingProvider.supportsResponseApi ?? false}
-                onChange={(e) =>
-                  setEditingProvider({
-                    ...editingProvider,
-                    supportsResponseApi: e.target.checked,
-                  })
-                }
-              />
-              <div className="flex flex-col">
-                <label
-                  htmlFor="p-response-api"
-                  className="text-sm font-medium text-foreground cursor-pointer"
-                >
-                  Response API (v1/responses) を使用可能
-                </label>
-                <span className="text-xs text-muted-foreground">
-                  POST /v1/responses エンドポイントへのリクエストが可能になります。
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="pt-4 flex justify-end gap-3 border-t border-border">
+      {/* 編集フォーム (Modal) */}
+      <Modal
+        isOpen={!!editingProvider}
+        onClose={() => setEditingProvider(null)}
+        maxWidth="max-w-xl"
+        title={editingProvider?.id ? 'プロバイダーを編集' : '新しいプロバイダーを追加'}
+        footer={
+          <>
             <button
               type="button"
               onClick={() => setEditingProvider(null)}
@@ -324,11 +203,11 @@ export function ProviderSettings() {
               type="button"
               disabled={
                 saveMutation.isPending ||
-                !editingProvider.name.trim() ||
-                (editingProvider.type !== 'google' &&
-                  editingProvider.type !== 'anthropic' &&
-                  !editingProvider.baseUrl.trim()) ||
-                (editingProvider.requiresApiKey && !editingProvider.apiKey.trim())
+                !editingProvider?.name.trim() ||
+                (editingProvider?.type !== 'google' &&
+                  editingProvider?.type !== 'anthropic' &&
+                  !editingProvider?.baseUrl.trim()) ||
+                (editingProvider?.requiresApiKey && !editingProvider?.apiKey.trim())
               }
               onClick={() => editingProvider && saveMutation.mutate(editingProvider)}
               className="px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-all shadow-md disabled:opacity-50"
@@ -340,9 +219,139 @@ export function ProviderSettings() {
               )}
               <span>設定を保存</span>
             </button>
+          </>
+        }
+      >
+        {editingProvider && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label htmlFor="p-name" className="text-xs font-semibold text-muted-foreground">
+                  表示名
+                </label>
+                <input
+                  id="p-name"
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="OpenAI, Local LLM など"
+                  value={editingProvider.name}
+                  onChange={(e) => setEditingProvider({ ...editingProvider, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="p-type" className="text-xs font-semibold text-muted-foreground">
+                  プロバイダータイプ
+                </label>
+                <select
+                  id="p-type"
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={editingProvider.type}
+                  onChange={(e) => {
+                    const newType = e.target.value as ProviderType;
+                    setEditingProvider({
+                      ...editingProvider,
+                      type: newType,
+                      supportsResponseApi: RESPONSE_API_SUPPORTED_TYPES.includes(newType)
+                        ? editingProvider.supportsResponseApi
+                        : false,
+                    });
+                  }}
+                >
+                  {PROVIDER_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {editingProvider.type !== 'google' && (
+              <div className="space-y-1.5">
+                <label htmlFor="p-url" className="text-xs font-semibold text-muted-foreground">
+                  API ベースURL{' '}
+                  {editingProvider.type !== 'anthropic' && (
+                    <span className="text-destructive">*</span>
+                  )}
+                </label>
+                <input
+                  id="p-url"
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={
+                    editingProvider.type === 'anthropic'
+                      ? 'https://api.anthropic.com (省略可)'
+                      : 'https://api.openai.com/v1'
+                  }
+                  value={editingProvider.baseUrl}
+                  onChange={(e) =>
+                    setEditingProvider({ ...editingProvider, baseUrl: e.target.value })
+                  }
+                  required={editingProvider.type !== 'anthropic'}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor="p-key" className="text-xs font-semibold text-muted-foreground">
+                  API キー{' '}
+                  {editingProvider.requiresApiKey && <span className="text-destructive">*</span>}
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingProvider.requiresApiKey}
+                    onChange={(e) =>
+                      setEditingProvider({
+                        ...editingProvider,
+                        requiresApiKey: e.target.checked,
+                      })
+                    }
+                    className="w-3 h-3 rounded bg-background text-primary focus:ring-ring"
+                  />
+                  <span className="text-[10px] text-muted-foreground">必須とする</span>
+                </label>
+              </div>
+              <input
+                id="p-key"
+                type="password"
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring text-foreground"
+                placeholder={editingProvider.requiresApiKey ? '必須です' : 'sk- ... (空欄可)'}
+                value={editingProvider.apiKey}
+                onChange={(e) => setEditingProvider({ ...editingProvider, apiKey: e.target.value })}
+                required={editingProvider.requiresApiKey}
+              />
+            </div>
+
+            {RESPONSE_API_SUPPORTED_TYPES.includes(editingProvider.type) && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  id="p-response-api"
+                  type="checkbox"
+                  className="w-4 h-4 rounded bg-background text-primary focus:ring-ring"
+                  checked={editingProvider.supportsResponseApi ?? false}
+                  onChange={(e) =>
+                    setEditingProvider({
+                      ...editingProvider,
+                      supportsResponseApi: e.target.checked,
+                    })
+                  }
+                />
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="p-response-api"
+                    className="text-sm font-medium text-foreground cursor-pointer"
+                  >
+                    Response API (v1/responses) を使用可能
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    POST /v1/responses エンドポイントへのリクエストが可能になります。
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }
@@ -374,8 +383,8 @@ function SortableProviderItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`p-3 md:p-4 rounded-md border transition-all flex items-center gap-4 group bg-muted/30 hover:border-primary/20 ${
-        isDragging ? 'shadow-xl border-primary scale-[1.02] bg-background' : ''
+      className={`p-3 md:p-4 rounded-md border transition-all flex items-center gap-4 group bg-muted/30 hover:border-primary ${
+        isDragging ? 'shadow-xl border-primary scale-[1.02] bg-background' : 'border-primary/20'
       } ${!provider.isActive ? 'grayscale-[0.8] opacity-60' : ''}`}
     >
       <div
@@ -411,20 +420,11 @@ function SortableProviderItem({
 
       <div className="flex items-center gap-3 shrink-0">
         {/* Toggle Switch */}
-        <button
-          type="button"
-          onClick={() => onToggleActive(!provider.isActive)}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-            provider.isActive ? 'bg-primary' : 'bg-muted'
-          }`}
+        <Switch
+          checked={provider.isActive}
+          onChange={(isActive) => onToggleActive(isActive)}
           title={provider.isActive ? '無効にする' : '有効にする'}
-        >
-          <span
-            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out ${
-              provider.isActive ? 'translate-x-4' : 'translate-x-0'
-            }`}
-          />
-        </button>
+        />
 
         <div className="flex items-center gap-1 opacity-100 transition-opacity">
           <button
@@ -434,19 +434,17 @@ function SortableProviderItem({
           >
             編集
           </button>
-          {!provider.isActive && (
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm(`${provider.name} を削除してもよろしいですか？`)) {
-                  onDelete();
-                }
-              }}
-              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(`${provider.name} を削除してもよろしいですか？`)) {
+                onDelete();
+              }
+            }}
+            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>

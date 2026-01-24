@@ -11,11 +11,7 @@ export interface ChatOptions {
   model: string;
   messages: OpenAI.Chat.ChatCompletionMessageParam[];
   stream?: boolean;
-  temperature?: number;
   max_tokens?: number;
-  top_p?: number;
-  frequency_penalty?: number;
-  presence_penalty?: number;
   stop?: string | string[];
   tools?: OpenAI.Chat.ChatCompletionTool[];
   tool_choice?: OpenAI.Chat.ChatCompletionToolChoiceOption;

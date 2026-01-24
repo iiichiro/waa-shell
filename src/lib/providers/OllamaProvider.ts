@@ -59,44 +59,75 @@ export class OllamaProvider extends AbstractProvider {
     });
 
     if (options.stream) {
-      const response = await this.client.chat({
+      const response = await (
+        this.client.chat as (args: unknown) => Promise<{
+          abort: () => void;
+          [Symbol.asyncIterator]: () => AsyncIterator<{
+            message: { content: string; thinking?: string };
+            done: boolean;
+          }>;
+        }>
+      )({
         model: options.model,
         messages,
         stream: true,
+        think: true,
         options: {
-          temperature: options.temperature,
+          ...options.extraParams,
           num_predict: options.max_tokens,
-          top_p: options.top_p,
         },
+        signal: options.signal,
       });
 
+      // 信号の中断をハンドル
+      const abortHandler = () => response.abort();
+      if (options.signal) {
+        options.signal.addEventListener('abort', abortHandler);
+      }
+
       return (async function* () {
-        for await (const chunk of response) {
-          yield {
-            id: 'ollama-stream',
-            object: 'chat.completion.chunk',
-            created: Date.now(),
-            model: options.model,
-            choices: [
-              {
-                index: 0,
-                delta: { content: chunk.message.content },
-                finish_reason: chunk.done ? 'stop' : null,
-              },
-            ],
-          } as ChatCompletionChunk;
+        try {
+          for await (const chunk of response) {
+            yield {
+              id: 'ollama-stream',
+              object: 'chat.completion.chunk',
+              created: Date.now(),
+              model: options.model,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: chunk.message.content,
+                    reasoning_content: chunk.message.thinking, // reasoning_content として渡す
+                  } as unknown as ChatCompletionChunk.Choice.Delta,
+                  finish_reason: chunk.done ? 'stop' : null,
+                },
+              ],
+            } as ChatCompletionChunk;
+          }
+        } finally {
+          if (options.signal) {
+            options.signal.removeEventListener('abort', abortHandler);
+          }
         }
       })();
     } else {
-      const response = await this.client.chat({
+      const response = await (
+        this.client.chat as (args: unknown) => Promise<{
+          message: { content: string; thinking?: string };
+          prompt_eval_count?: number;
+          eval_count?: number;
+        }>
+      )({
         model: options.model,
         messages,
         stream: false,
+        think: true,
         options: {
-          temperature: options.temperature,
+          ...options.extraParams,
           num_predict: options.max_tokens,
-          top_p: options.top_p,
         },
+        signal: options.signal,
       });
 
       return {
@@ -110,7 +141,8 @@ export class OllamaProvider extends AbstractProvider {
             message: {
               role: 'assistant',
               content: response.message.content,
-            },
+              reasoning_content: response.message.thinking, // reasoning_content として渡す
+            } as unknown as ChatCompletion.Choice,
             finish_reason: 'stop',
           },
         ],
@@ -119,7 +151,7 @@ export class OllamaProvider extends AbstractProvider {
           completion_tokens: response.eval_count || 0,
           total_tokens: (response.prompt_eval_count || 0) + (response.eval_count || 0),
         },
-      } as ChatCompletion;
+      } as unknown as ChatCompletion;
     }
   }
 }

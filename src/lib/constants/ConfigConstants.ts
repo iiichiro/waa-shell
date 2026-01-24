@@ -4,16 +4,16 @@
 import type { ProviderType } from '../db';
 
 /** モデルのツールサポートが不明な場合のデフォルト値 */
-export const DEFAULT_SUPPORTS_TOOLS = false;
+export const DEFAULT_SUPPORTS_TOOLS = true;
 
 /** モデルの画像サポートが不明な場合のデフォルト値 */
-export const DEFAULT_SUPPORTS_IMAGES = false;
+export const DEFAULT_SUPPORTS_IMAGES = true;
 
 /** 入力履歴の最大保持件数 */
 export const MAX_INPUT_HISTORY = 50;
 
 /** ストリーミングのデフォルト有効状態 */
-export const DEFAULT_ENABLE_STREAM = false;
+export const DEFAULT_ENABLE_STREAM = true;
 
 /** 送信ショートカットのデフォルト設定 */
 export const DEFAULT_SEND_SHORTCUT = 'ctrl-enter';

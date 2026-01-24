@@ -7,19 +7,29 @@ import { db, type Provider } from '../db';
 /**
  * プロバイダーの登録または更新
  */
-export async function upsertProvider(provider: Omit<Provider, 'createdAt' | 'updatedAt'>) {
-  const existing = await db.providers.where('name').equals(provider.name).first();
+export async function upsertProvider(
+  provider: Omit<Provider, 'createdAt' | 'updatedAt'> & { id?: number },
+) {
   const now = new Date();
 
-  // 単一アクティブ制限を削除 (複数有効化を許可)
+  // 1. IDがある場合はIDで検索、ない場合は名前で検索
+  let existing: Provider | undefined;
+  if (provider.id !== undefined) {
+    existing = await db.providers.get(provider.id);
+  } else {
+    existing = await db.providers.where('name').equals(provider.name).first();
+  }
 
   if (existing && existing.id !== undefined) {
+    // 既存の値をベースに、変更内容をマージして更新 (order等を引き継ぐ)
     return db.providers.update(existing.id, {
+      ...existing,
       ...provider,
       updatedAt: now,
     });
   }
 
+  // 新規追加
   return db.providers.add({
     ...provider,
     createdAt: now,

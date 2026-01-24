@@ -5,6 +5,9 @@
 /** メインウィンドウが拡張された時のデフォルトの高さ (px) */
 export const WINDOW_DEFAULT_HEIGHT_EXPANDED = 800;
 
+/** ランチャーモードが拡張された時のデフォルトの高さ (px) */
+export const LAUNCHER_HEIGHT_EXPANDED = 600;
+
 /** ランチャーモードの最小の高さ (px) */
 export const LAUNCHER_MIN_HEIGHT = 120;
 

@@ -120,14 +120,13 @@ export class AnthropicProvider extends AbstractProvider {
 
     if (options.stream) {
       const stream = await this.client.messages.create({
+        ...options.extraParams,
         model: options.model,
-        max_tokens: options.max_tokens || 4096,
+        max_tokens: options.max_tokens || 4096 * 1000,
         system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
         messages,
         tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
         stream: true,
-        temperature: options.temperature,
-        top_p: options.top_p,
       });
 
       return (async function* () {
@@ -226,14 +225,13 @@ export class AnthropicProvider extends AbstractProvider {
       })();
     } else {
       const response = await this.client.messages.create({
+        ...options.extraParams,
         model: options.model,
         max_tokens: options.max_tokens || 4096 * 1000,
         system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
         messages,
         tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
         stream: false,
-        temperature: options.temperature,
-        top_p: options.top_p,
       });
 
       const text = response.content

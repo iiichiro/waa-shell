@@ -1,4 +1,4 @@
-import { FileUp, Wrench, Zap } from 'lucide-react';
+import { FileUp, Shell, Wrench } from 'lucide-react';
 import type { ModelInfo } from '../../lib/services/ModelService';
 
 interface ModelCapabilityIndicatorsProps {
@@ -23,7 +23,7 @@ export function ModelCapabilityIndicators({ model }: ModelCapabilityIndicatorsPr
     },
     {
       key: 'stream',
-      icon: Zap,
+      icon: Shell,
       active: model.enableStream,
       label: 'ストリーム生成',
     },

@@ -157,8 +157,7 @@ export async function sendMessage(
 
   // 1. ユーザーメッセージをDBに保存
   // parentId が undefined の場合は最新(activeLeafId)を、null の場合はルートを意味する
-  let currentParentId =
-    options.parentId === undefined ? thread.activeLeafId : (options.parentId ?? undefined);
+  let currentParentId = options.parentId === undefined ? thread.activeLeafId : options.parentId;
 
   // UI/UX改善: もし現在のアクティブなリーフと起点が異なる場合、即座に更新して表示を切り替える
   // これにより再送時に古いメッセージが即座に消える
@@ -880,8 +879,8 @@ async function* handleResponseStream(
 
 /**
  * メッセージを再生成する
- * 1. 指定されたメッセージを削除（または無視して）
- * 2. その親メッセージ（ユーザー）から再送
+ * 1. 指定されたメッセージがアシスタントなら、その親（ユーザー）から再送
+ * 2. 指定されたメッセージがユーザーなら、そこから直接再送
  */
 export async function regenerateMessage(
   threadId: number,
@@ -891,16 +890,25 @@ export async function regenerateMessage(
     onUserMessageSaved?: (messageId: number | null | undefined) => void;
     signal?: AbortSignal;
   } = {},
-) {
+): Promise<Message | AsyncIterable<ChatCompletionChunk> | undefined> {
   const message = await db.messages.get(messageId);
-  if (!message || message.role !== 'assistant') return;
+  if (!message) return;
 
-  // AIメッセージの親（通常はユーザーメッセージ）を起点に再送
-  // parentIdがundefined（最初のメッセージ）の場合はnullを渡すことで、正しくルートブランチとして作成させる
   const allModels = await listModels();
   const currentModel = allModels.find((m) => m.id === modelId);
   const shouldStream = currentModel?.enableStream ?? false;
 
+  if (message.role === 'user') {
+    // ユーザーメッセージ自身を起点にする
+    return sendMessage(threadId, '', modelId, {
+      stream: shouldStream,
+      parentId: messageId,
+      onUserMessageSaved: options.onUserMessageSaved,
+      signal: options.signal,
+    });
+  }
+
+  // AIメッセージの親（通常はユーザーメッセージ）を起点に再送
   return sendMessage(threadId, '', modelId, {
     stream: shouldStream,
     parentId: message.parentId ?? null,

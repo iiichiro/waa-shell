@@ -16,23 +16,23 @@ export interface LocalTool {
 // ローカルツールのレジストリ
 const localToolRegistry: LocalTool[] = [
   // ここにローカルツールを追加していく
-  {
-    id: 'get_current_time',
-    name: '現在時刻取得',
-    description: '現在の日時を取得します。',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'get_current_time',
-        description: '現在の日時を取得します。',
-        parameters: {
-          type: 'object',
-          properties: {},
-        },
-      },
-    },
-    execute: async () => new Date().toLocaleString('ja-JP'),
-  },
+  // {
+  //   id: 'get_current_time',
+  //   name: '現在時刻取得',
+  //   description: '現在の日時を取得します。',
+  //   schema: {
+  //     type: 'function',
+  //     function: {
+  //       name: 'get_current_time',
+  //       description: '現在の日時を取得します。',
+  //       parameters: {
+  //         type: 'object',
+  //         properties: {},
+  //       },
+  //     },
+  //   },
+  //   execute: async () => new Date().toLocaleString('ja-JP'),
+  // },
 ];
 
 /**

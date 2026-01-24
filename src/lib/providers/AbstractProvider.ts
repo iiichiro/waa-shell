@@ -83,10 +83,9 @@ export abstract class AbstractProvider implements BaseProvider {
         isCustom: false,
         isManual: false,
         supportsTools:
-          (config?.supportsTools ??
-          DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type))
-            ? false
-            : DEFAULT_SUPPORTS_TOOLS,
+          config?.supportsTools ??
+          (!DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type) &&
+            DEFAULT_SUPPORTS_TOOLS),
         supportsImages: config?.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
         protocol: config?.protocol || DEFAULT_PROTOCOL,
       });
@@ -94,7 +93,8 @@ export abstract class AbstractProvider implements BaseProvider {
 
     manualModels.forEach((m) => {
       const config = configMap.get(m.uuid);
-      const isOverride = apiModels.some((am) => am.id === m.uuid);
+      const apiModelIndex = apiModels.findIndex((am) => am.id === m.uuid);
+      const isOverride = apiModelIndex !== -1;
 
       models.push({
         id: m.uuid,
@@ -110,16 +110,17 @@ export abstract class AbstractProvider implements BaseProvider {
         canStream: true,
         enableStream: config?.enableStream ?? m.enableStream ?? DEFAULT_ENABLE_STREAM,
         isEnabled: config?.isEnabled ?? m.isEnabled ?? true,
-        order: config?.order ?? startOrder + apiModels.length + 500,
+        order:
+          config?.order ??
+          (isOverride ? startOrder + apiModelIndex : startOrder + apiModels.length + 500),
         isCustom: false,
         isManual: true,
         isApiOverride: isOverride,
         supportsTools:
-          (config?.supportsTools ??
+          config?.supportsTools ??
           m.supportsTools ??
-          DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type))
-            ? false
-            : DEFAULT_SUPPORTS_TOOLS,
+          (!DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type) &&
+            DEFAULT_SUPPORTS_TOOLS),
         supportsImages: config?.supportsImages ?? m.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
         protocol: config?.protocol || m.protocol || DEFAULT_PROTOCOL,
       });

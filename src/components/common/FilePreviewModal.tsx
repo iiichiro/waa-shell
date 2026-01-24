@@ -1,8 +1,8 @@
-import { Download, X } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { LocalFile } from '../../lib/db';
 import { blobToDataURL } from '../../lib/utils/image';
+import { Modal } from './Modal';
 
 interface FilePreviewModalProps {
   file: LocalFile;
@@ -28,15 +28,6 @@ export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
     };
   }, [file]);
 
-  // Escキーで閉じる
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   const handleDownload = () => {
     if (!dataUrl) return;
     const a = document.createElement('a');
@@ -47,48 +38,27 @@ export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
     document.body.removeChild(a);
   };
 
-  const content = (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 md:p-8 animate-in fade-in duration-200">
-      {/* 背景クリックで閉じるためのオーバーレイ */}
-      <button
-        type="button"
-        className="absolute inset-0 w-full h-full cursor-default"
-        onClick={onClose}
-        aria-label="Close preview"
-      />
-
-      <div className="relative z-10 max-w-5xl w-full max-h-full flex flex-col items-center justify-center pointer-events-none">
-        {/* コントロールバー */}
-        <div className="absolute top-0 right-0 p-2 flex gap-2 pointer-events-auto">
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors backdrop-blur-md border border-white/10"
-            title="ダウンロード"
-          >
-            <Download className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors backdrop-blur-md border border-white/10"
-            title="閉じる"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
+  return (
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={file.fileName}
+      maxWidth="max-w-5xl"
+      className="!bg-transparent !border-none !shadow-none overflow-visible"
+      showCloseButton={true}
+    >
+      <div className="flex flex-col items-center justify-center gap-4 max-h-full">
         {/* プレビュー本体 */}
-        <div className="pointer-events-auto flex flex-col items-center gap-4 max-h-full overflow-hidden">
+        <div className="flex flex-col items-center gap-4 max-h-full">
           {isImage ? (
             dataUrl ? (
               <img
                 src={dataUrl}
                 alt={file.fileName}
-                className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl"
+                className="max-w-full max-h-[70vh] object-contain rounded-md shadow-2xl"
               />
             ) : (
-              <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+              <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
             )
           ) : (
             <div className="bg-background text-foreground p-8 rounded-xl shadow-2xl border max-w-md w-full text-center space-y-6">
@@ -112,17 +82,23 @@ export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
             </div>
           )}
 
-          {/* 画像の場合もキャプションを表示 */}
+          {/* 画像の場合もキャプションを表示（Modal内の下部） */}
           {isImage && (
-            <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-full text-white text-sm font-medium border border-white/10 shadow-lg">
-              {file.fileName} ({(file.size / 1024).toFixed(1)} KB)
+            <div className="bg-black/50 backdrop-blur-md px-4 py-2 rounded-full text-white text-sm font-medium border border-white/10 shadow-lg flex items-center gap-3">
+              <span className="truncate max-w-[200px]">{file.fileName}</span>
+              <span className="opacity-60">({(file.size / 1024).toFixed(1)} KB)</span>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="ml-2 p-1 hover:bg-white/20 rounded-full transition-colors"
+                title="ダウンロード"
+              >
+                <Download className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
-
-  if (typeof document === 'undefined') return null;
-  return createPortal(content, document.body);
 }

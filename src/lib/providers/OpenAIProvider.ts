@@ -78,10 +78,10 @@ export class OpenAIProvider extends AbstractProvider {
 
     const requestBody = {
       ...params,
+      ...extraParams,
       tools: processedTools,
       messages,
       model: model,
-      ...extraParams,
     } as OpenAI.Chat.ChatCompletionCreateParams;
 
     if (options.stream) {
@@ -106,10 +106,10 @@ export class OpenAIProvider extends AbstractProvider {
 
     const requestBody = {
       ...params,
+      ...extraParams,
       tools: processedTools,
       input,
       model: model,
-      ...extraParams,
     };
 
     if (options.stream) {

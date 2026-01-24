@@ -1,6 +1,8 @@
 import { Globe, Wrench, Zap } from 'lucide-react';
 import { getLocalTools } from '../../lib/services/ToolService';
 import { useAppStore } from '../../store/useAppStore';
+import { EmptyState } from '../common/EmptyState';
+import { Switch } from '../common/Switch';
 
 export function ToolSettings() {
   const { enabledTools, setToolEnabled, enabledBuiltInTools, setBuiltInToolEnabled } =
@@ -38,7 +40,7 @@ export function ToolSettings() {
             return (
               <div
                 key={tool.id}
-                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary/20"
+                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary border-primary/20"
               >
                 <div className="flex items-start gap-4">
                   <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
@@ -54,21 +56,10 @@ export function ToolSettings() {
                 </div>
 
                 <div className="flex items-center">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isEnabled}
-                    onClick={() => setBuiltInToolEnabled(tool.id, !isEnabled)}
-                    className={`w-11 h-6 rounded-full border transition-colors relative ${
-                      isEnabled ? 'bg-primary' : 'bg-input'
-                    }`}
-                  >
-                    <span
-                      className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
-                        isEnabled ? 'left-6 bg-background' : 'left-1 bg-primary'
-                      }`}
-                    />
-                  </button>
+                  <Switch
+                    checked={isEnabled}
+                    onChange={(checked) => setBuiltInToolEnabled(tool.id, checked)}
+                  />
                 </div>
               </div>
             );
@@ -94,7 +85,7 @@ export function ToolSettings() {
             return (
               <div
                 key={tool.id}
-                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary/20"
+                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary border-primary/20"
               >
                 <div className="flex items-start gap-4">
                   <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
@@ -110,31 +101,21 @@ export function ToolSettings() {
                 </div>
 
                 <div className="flex items-center">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isEnabled}
-                    onClick={() => setToolEnabled(tool.id, !isEnabled)}
-                    className={`w-11 h-6 rounded-full border transition-colors relative ${
-                      isEnabled ? 'bg-primary' : 'bg-input'
-                    }`}
-                  >
-                    <span
-                      className={`block w-4 h-4 rounded-full shadow-sm transition-transform absolute top-1 ${
-                        isEnabled ? 'left-6 bg-background' : 'left-1 bg-primary'
-                      }`}
-                    />
-                  </button>
+                  <Switch
+                    checked={isEnabled}
+                    onChange={(checked) => setToolEnabled(tool.id, checked)}
+                  />
                 </div>
               </div>
             );
           })}
 
           {localTools.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-dashed">
-              <Wrench className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>利用可能なローカルツールはありません</p>
-            </div>
+            <EmptyState
+              icon={Wrench}
+              title="利用可能なローカルツールはありません"
+              description="現在、登録されているローカルツールが存在しません。"
+            />
           )}
         </div>
       </div>

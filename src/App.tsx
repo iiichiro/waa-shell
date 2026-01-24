@@ -15,6 +15,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { SettingsView } from './components/settings/SettingsView';
 import { useChatInput } from './hooks/useChatInput';
 import {
+  LAUNCHER_HEIGHT_EXPANDED,
   LAUNCHER_MAX_HEIGHT,
   LAUNCHER_MIN_HEIGHT,
   LAUNCHER_SUGGEST_MIN_HEIGHT,
@@ -64,6 +65,8 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // モデル選択状態の管理
   const [selectedProviderId, setSelectedProviderId] = useState<string>(''); // プロバイダー選択状態の管理
+  const headerRef = useRef<HTMLDivElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
@@ -78,6 +81,9 @@ export default function App() {
 
   // AbortController for cancelling generation (per thread)
   const abortControllersRef = useRef<Map<number, AbortController>>(new Map());
+
+  // ランチャーモード：前回の拡張状態を保持（リサイズの制御用）
+  const prevShouldExpandRef = useRef<boolean | null>(null);
 
   const {
     data: models = [],
@@ -588,6 +594,9 @@ export default function App() {
       if (!activeThreadId) return;
       if (sendMutation.isPending) return;
 
+      const message = await db.messages.get(messageId);
+      if (!message) return;
+
       const targetModelId = selectedModelId || (models.length > 0 ? models[0].id : '');
       const currentModel = models.find(
         (m) =>
@@ -601,27 +610,22 @@ export default function App() {
         return;
       }
 
-      const message = await db.messages.get(messageId);
-      if (!message) return;
+      // ユーザー背景ならそれ自身を親に、アシスタントならその親（ユーザー）を親にする
+      const parentId = message.role === 'user' ? messageId : (message.parentId ?? null);
 
-      let parentIdForRegenerate: number | null;
-
-      if (message.role === 'user') {
-        if (type === 'regenerate') {
+      // 再生成（ブランチ無し）の場合は既存の配下を削除
+      if (type === 'regenerate') {
+        // アシスタントメッセージなら自分と子孫、ユーザーなら子孫のみ
+        const startId = message.role === 'assistant' ? messageId : undefined;
+        if (startId) {
+          await deleteMessageAndDescendants(activeThreadId, startId);
+        } else {
           const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
           const children = allInThread.filter((m) => m.parentId === messageId);
           for (const child of children) {
-            if (child.id) {
-              await deleteMessageAndDescendants(activeThreadId, child.id);
-            }
+            if (child.id) await deleteMessageAndDescendants(activeThreadId, child.id);
           }
         }
-        parentIdForRegenerate = messageId;
-      } else {
-        if (type === 'regenerate') {
-          await deleteMessageAndDescendants(activeThreadId, messageId);
-        }
-        parentIdForRegenerate = message.parentId ?? null;
       }
 
       await queryClient.invalidateQueries({
@@ -631,11 +635,21 @@ export default function App() {
       sendMutation.mutate({
         text: '',
         attachments: [],
-        parentId: parentIdForRegenerate,
+        parentId: parentId,
         isRegenerate: true,
       });
     },
     [activeThreadId, sendMutation, selectedModelId, selectedProviderId, models, queryClient],
+  );
+
+  const shouldExpand = !!(
+    messages.length > 0 ||
+    activeThreadId ||
+    streamingContent ||
+    sendMutation.isPending ||
+    isSettingsOpen ||
+    isCommandManagerOpen ||
+    isFileExplorerOpen
   );
 
   const handleEdit = useCallback(
@@ -717,27 +731,31 @@ export default function App() {
         const factor = await appWindow.scaleFactor();
         const currentLogicalSize = currentSize.toLogical(factor);
 
-        const shouldExpand =
-          messages.length > 0 ||
-          activeThreadId ||
-          streamingContent ||
-          sendMutation.isPending ||
-          isSettingsOpen ||
-          isCommandManagerOpen ||
-          isFileExplorerOpen;
-
         if (shouldExpand) {
-          await appWindow.setSize(
-            new LogicalSize(currentLogicalSize.width, WINDOW_DEFAULT_HEIGHT_EXPANDED),
-          );
+          // 拡張状態に切り替わった瞬間のみサイズを変更する
+          if (prevShouldExpandRef.current !== true) {
+            const expandedHeight = isLauncher
+              ? LAUNCHER_HEIGHT_EXPANDED
+              : WINDOW_DEFAULT_HEIGHT_EXPANDED;
+            await appWindow.setSize(new LogicalSize(currentLogicalSize.width, expandedHeight));
+          }
         } else {
-          // DOMの高さを計測してウィンドウサイズを決定
-          // 少し余裕を持たせる (+20px)
-          const contentHeight = document.documentElement.scrollHeight;
+          // 各要素の高さを個別に計測して合計する
+          const headerHeight = headerRef.current?.offsetHeight || 0;
+          const messagesHeight =
+            messages.length > 0 ? scrollContainerRef.current?.scrollHeight || 0 : 0;
+          const inputHeight = inputAreaRef.current?.offsetHeight || 0;
+
+          // ランチャーモードのパディング等も考慮
+          const totalContentHeight = headerHeight + messagesHeight + inputHeight;
+
           const minHeight = LAUNCHER_MIN_HEIGHT;
           const maxCompactHeight = LAUNCHER_MAX_HEIGHT;
 
-          let targetHeight = Math.max(minHeight, Math.min(contentHeight + 20, maxCompactHeight));
+          let targetHeight = Math.max(
+            minHeight,
+            Math.min(totalContentHeight + 24, maxCompactHeight),
+          );
 
           // サジェスト表示中は少し広げる
           if (showSuggest) {
@@ -746,6 +764,8 @@ export default function App() {
 
           await appWindow.setSize(new LogicalSize(currentLogicalSize.width, targetHeight));
         }
+
+        prevShouldExpandRef.current = shouldExpand;
       } catch (e) {
         console.error('Failed to resize window:', e);
       }
@@ -756,23 +776,16 @@ export default function App() {
       resizeWindow();
     });
     observer.observe(document.body);
+    if (inputAreaRef.current) {
+      observer.observe(inputAreaRef.current);
+    }
 
     resizeWindow();
 
     return () => {
       observer.disconnect();
     };
-  }, [
-    isLauncher,
-    messages.length,
-    activeThreadId,
-    streamingContent,
-    sendMutation.isPending,
-    isSettingsOpen,
-    isCommandManagerOpen,
-    isFileExplorerOpen,
-    showSuggest,
-  ]);
+  }, [isLauncher, shouldExpand, showSuggest, messages.length]);
 
   // スラッシュコマンド監視
   useEffect(() => {
@@ -881,34 +894,38 @@ export default function App() {
     <div
       className={`flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground relative font-sans ${isLauncher ? 'rounded-xl border shadow-2xl' : ''}`}
     >
-      <ChatHeader
-        isLauncher={isLauncher}
-        activeThreadId={activeThreadId}
-        activeThreadTitle={activeThread?.title}
-        isSidebarOpen={isSidebarOpen}
-        toggleSidebar={toggleSidebar}
-        onNewChat={handleNewChat}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenThreadSettings={() => setThreadSettingsOpen(true)}
-        onOpenFileExplorer={(tid) => setFileExplorerOpen(true, tid)}
-        onCloseLauncher={handleWindowClose}
-        models={models}
-        providers={providers}
-        selectedModelId={selectedModelId}
-        selectedProviderId={selectedProviderId}
-        handleModelChange={(mId, pId) => handleModelChange(mId, pId)}
-        editingTitle={editingTitle}
-        titleInput={titleInput}
-        setTitleInput={setTitleInput}
-        setEditingTitle={setEditingTitle}
-        handleTitleUpdate={handleTitleUpdate}
-        enabledTools={enabledTools}
-        setToolEnabled={setToolEnabled}
-        hasDraftSettings={Object.keys(draftThreadSettings).length > 0}
-        isModelsLoading={isModelsLoading || isModelsRefetching}
-      />
+      <div ref={headerRef} className="shrink-0 z-100">
+        <ChatHeader
+          isLauncher={isLauncher}
+          activeThreadId={activeThreadId}
+          activeThreadTitle={activeThread?.title}
+          isSidebarOpen={isSidebarOpen}
+          toggleSidebar={toggleSidebar}
+          onNewChat={handleNewChat}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenThreadSettings={() => setThreadSettingsOpen(true)}
+          onOpenFileExplorer={(tid) => setFileExplorerOpen(true, tid)}
+          onCloseLauncher={handleWindowClose}
+          models={models}
+          providers={providers}
+          selectedModelId={selectedModelId}
+          selectedProviderId={selectedProviderId}
+          handleModelChange={(mId, pId) => handleModelChange(mId, pId)}
+          editingTitle={editingTitle}
+          titleInput={titleInput}
+          setTitleInput={setTitleInput}
+          setEditingTitle={setEditingTitle}
+          handleTitleUpdate={handleTitleUpdate}
+          enabledTools={enabledTools}
+          setToolEnabled={setToolEnabled}
+          hasDraftSettings={Object.keys(draftThreadSettings).length > 0}
+          isModelsLoading={isModelsLoading || isModelsRefetching}
+        />
+      </div>
 
-      <div className="flex flex-1 overflow-hidden relative w-full">
+      <div
+        className={`flex ${isLauncher && !shouldExpand ? 'flex-none h-fit' : 'flex-1'} overflow-hidden relative w-full`}
+      >
         {isSidebarOpen && (
           <button
             type="button"
@@ -926,20 +943,14 @@ export default function App() {
           </div>
         )}
 
-        <main className="flex-1 flex flex-col relative h-full w-full min-w-0 overflow-hidden">
-          <ThreadSettingsModal
-            isOpen={isThreadSettingsOpen}
-            onClose={() => setThreadSettingsOpen(false)}
-            threadId={activeThreadId || undefined}
-            initialSettings={!activeThreadId ? draftThreadSettings : undefined}
-            onSave={!activeThreadId ? handleDraftSave : undefined}
-          />
-
+        <main
+          className={`${isLauncher && !shouldExpand ? 'flex-none h-fit' : 'flex-1'} flex flex-col relative h-full w-full min-w-0 overflow-hidden gap-1`}
+        >
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
             key={activeThreadId || 'new-thread'}
-            className={`flex-1 overflow-y-auto space-y-6 md:space-y-8 scroll-smooth custom-scrollbar ${isLauncher ? 'px-3 py-3' : 'px-4 py-4 md:px-8'}`}
+            className={`${isLauncher && !shouldExpand ? 'flex-none h-2 p-0 overflow-hidden' : 'flex-1 overflow-y-auto px-3 py-3 md:px-4 py-4 md:px-8'} space-y-6 md:space-y-8 scroll-smooth custom-scrollbar`}
           >
             {messages.length === 0 && !sendMutation.isPending && !isLauncher && (
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-30 select-none">
@@ -998,23 +1009,22 @@ export default function App() {
                 onCopy={handleCopy}
               />
             )}
-            <div className="h-4" />
             <div ref={messagesEndRef} />
           </div>
 
-          <ScrollToBottomButton
-            show={showScrollButton}
-            onClick={scrollToBottom}
-            hasNewMessage={
-              !isAtBottom &&
-              (!!streamingContent ||
-                (messages.length > 0 && messages[messages.length - 1].role !== 'user'))
-            }
-          />
-
           <div
-            className={`pt-0 bg-gradient-to-t from-background via-background/95 to-transparent z-10 w-full shrink-0 ${isLauncher ? 'p-1.5' : 'p-2.5 md:px-5 md:pb-3'}`}
+            ref={inputAreaRef}
+            className={`pt-1 bg-gradient-to-t from-background via-background/95 to-transparent z-10 w-full shrink-0 relative ${isLauncher ? 'p-3 pt-2' : 'p-2.5 md:px-5 md:pb-3'}`}
           >
+            <ScrollToBottomButton
+              show={showScrollButton}
+              onClick={scrollToBottom}
+              hasNewMessage={
+                !isAtBottom &&
+                (!!streamingContent ||
+                  (messages.length > 0 && messages[messages.length - 1].role !== 'user'))
+              }
+            />
             <div className="mx-auto relative w-full">
               {showSuggest && (
                 <SlashCommandSuggest
@@ -1066,26 +1076,35 @@ export default function App() {
               </div>
             </div>
           </div>
-
-          {isCommandManagerOpen && (
-            <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
-              <CommandManager />
-            </div>
-          )}
-
-          {isSettingsOpen && (
-            <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
-              <SettingsView />
-            </div>
-          )}
-
-          {isFileExplorerOpen && (
-            <div className="absolute inset-0 z-50 flex flex-col bg-background animate-in slide-in-from-right">
-              <FileExplorer threadId={fileExplorerThreadId} />
-            </div>
-          )}
         </main>
       </div>
+
+      {/* Overlays at root level with high z-index */}
+      {isCommandManagerOpen && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
+          <CommandManager />
+        </div>
+      )}
+
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
+          <SettingsView />
+        </div>
+      )}
+
+      {isFileExplorerOpen && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
+          <FileExplorer threadId={fileExplorerThreadId} />
+        </div>
+      )}
+
+      <ThreadSettingsModal
+        isOpen={isThreadSettingsOpen}
+        onClose={() => setThreadSettingsOpen(false)}
+        threadId={activeThreadId || undefined}
+        initialSettings={!activeThreadId ? draftThreadSettings : undefined}
+        onSave={!activeThreadId ? handleDraftSave : undefined}
+      />
     </div>
   );
 }

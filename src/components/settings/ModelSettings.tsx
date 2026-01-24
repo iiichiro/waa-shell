@@ -17,8 +17,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDown,
-  ArrowUp,
   CheckSquare,
   Copy,
   Eye,
@@ -31,13 +29,13 @@ import {
   Settings2,
   Square,
   Trash2,
-  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { db, type ManualModel, type Provider, type ProviderType } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
 import { listProviders } from '../../lib/services/ProviderService';
+import { EmptyState } from '../common/EmptyState';
+import { Modal } from '../common/Modal';
 
 const RESPONSE_API_SUPPORTED_TYPES: ProviderType[] = [
   'openai-compatible',
@@ -233,6 +231,11 @@ export function ModelSettings() {
       }
 
       // ModelConfigも同期して更新 (一覧表示はこのテーブルの設定を参照するため)
+      const existingConfig = await db.modelConfigs
+        .where('[providerId+modelId]')
+        .equals([manualData.providerId, manualData.uuid])
+        .first();
+
       await db.modelConfigs.put({
         providerId: manualData.providerId,
         modelId: manualData.uuid, // UUIDをキーにする
@@ -241,7 +244,7 @@ export function ModelSettings() {
         supportsTools: manualData.supportsTools,
         supportsImages: manualData.supportsImages,
         protocol: manualData.protocol,
-        // 順序は既存があれば維持、なければモデル末尾などのデフォルト
+        order: existingConfig?.order, // 既存の順序を維持
       });
     },
     onSuccess: () => {
@@ -286,18 +289,6 @@ export function ModelSettings() {
   });
 
   // ハンドラ
-  const handleSwapOrder = async (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === filteredModels.length - 1) return;
-
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const newModels = [...filteredModels];
-    const [moved] = newModels.splice(index, 1);
-    newModels.splice(targetIndex, 0, moved);
-
-    bulkReorderMutation.mutate(newModels);
-  };
-
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -433,8 +424,9 @@ export function ModelSettings() {
   return (
     <div className="space-y-6 h-full flex flex-col animate-in fade-in slide-in-from-right">
       {/* ツールバー */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-col gap-4 shrink-0">
+        {/* 1段目: プロバイダーとフィルター */}
+        <div className="flex items-center gap-3 flex-wrap">
           {/* プロバイダー選択 */}
           <select
             value={targetProviderId}
@@ -472,20 +464,21 @@ export function ModelSettings() {
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
+        {/* 2段目: 検索と操作 */}
+        <div className="flex items-center gap-2">
           {/* 検索 */}
-          <div className="relative">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               placeholder="モデルを検索..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-3 py-2 bg-background border rounded-md text-sm text-foreground outline-none focus:ring-2 focus:ring-ring w-64"
+              className="w-full pl-9 pr-3 py-2 bg-background border rounded-md text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {selectedModelIds.size > 0 && (
               <div className="flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-lg border border-primary/20">
                 <span className="text-xs font-bold text-primary mr-2">
@@ -523,7 +516,7 @@ export function ModelSettings() {
                 });
                 setManualModalOpen(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 text-sm font-medium transition-all shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 text-sm font-medium transition-all shadow-sm whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
               <span>手動追加</span>
@@ -533,439 +526,430 @@ export function ModelSettings() {
       </div>
 
       {/* モデルリスト */}
-      <div className="flex-1 overflow-y-auto border rounded-md bg-muted/20 custom-scrollbar">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
-              <tr>
-                <th className="p-3 w-10 text-center">
-                  <button
-                    type="button"
-                    onClick={selectAll}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {selectedModelIds.size === filteredModels.length &&
-                    filteredModels.length > 0 ? (
-                      <CheckSquare className="w-4 h-4" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                  </button>
-                </th>
-                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">
-                  モデル名 / ID
-                </th>
-                <th className="p-3 text-xs font-bold text-muted-foreground uppercase">タイプ</th>
-                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-24 text-center">
-                  状態
-                </th>
-                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-32 text-center">
-                  並び順
-                </th>
-                <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-28 text-center">
-                  操作
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              <SortableContext
-                items={filteredModels.map((m) => m.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {filteredModels.map((model, index) => (
-                  <SortableRow
-                    key={model.id}
-                    model={model}
-                    index={index}
-                    isSelected={selectedModelIds.has(model.id)}
-                    isLast={index === filteredModels.length - 1}
-                    onToggleEnabled={(isEnabled) =>
-                      toggleEnabledMutation.mutate({ model, isEnabled })
-                    }
-                    onToggleSelection={() => toggleSelection(model.id)}
-                    onSwapOrder={(dir) => handleSwapOrder(index, dir)}
-                    onCopy={() => handleCopy(model)}
-                    onEdit={() => handleEdit(model)}
-                    onDelete={() => {
-                      const message = model.isApiOverride
-                        ? 'カスタマイズ設定を削除し、デフォルトに戻しますか？'
-                        : 'このモデルを削除しますか？';
-                      if (confirm(message)) deleteManualModelMutation.mutate(model);
-                    }}
-                  />
-                ))}
-              </SortableContext>
-              {filteredModels.length === 0 && (
+      <div className="flex-1 overflow-auto border rounded-md bg-muted/20 custom-scrollbar">
+        {filteredModels.length === 0 ? (
+          <EmptyState
+            icon={Search}
+            title={
+              searchQuery ? '条件に一致するモデルが見つかりません' : 'モデルが設定されていません'
+            }
+            description={
+              searchQuery
+                ? '検索キーワードを変更してみてください。'
+                : 'プロバイダーとモデルの設定を確認してください。'
+            }
+            className="border-none bg-transparent h-full"
+          />
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <table className="w-full text-left border-collapse min-w-[700px]">
+              <thead className="bg-foreground/5 sticky top-0 z-10 backdrop-blur-md">
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                    モデルが見つかりません
-                  </td>
+                  <th className="p-3 w-10 text-center">
+                    <button
+                      type="button"
+                      onClick={selectAll}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {selectedModelIds.size === filteredModels.length &&
+                      filteredModels.length > 0 ? (
+                        <CheckSquare className="w-4 h-4" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </th>
+                  <th className="p-3 text-xs font-bold text-muted-foreground uppercase">
+                    モデル名 / ID
+                  </th>
+                  <th className="p-3 text-xs font-bold text-muted-foreground uppercase">タイプ</th>
+                  <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-24 text-center">
+                    状態
+                  </th>
+                  <th className="p-3 text-xs font-bold text-muted-foreground uppercase w-28 text-center">
+                    操作
+                  </th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </DndContext>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <SortableContext
+                  items={filteredModels.map((m) => m.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {filteredModels.map((model) => (
+                    <SortableRow
+                      key={model.id}
+                      model={model}
+                      isSelected={selectedModelIds.has(model.id)}
+                      onToggleEnabled={(isEnabled) =>
+                        toggleEnabledMutation.mutate({ model, isEnabled })
+                      }
+                      onToggleSelection={() => toggleSelection(model.id)}
+                      onCopy={() => handleCopy(model)}
+                      onEdit={() => handleEdit(model)}
+                      onDelete={() => {
+                        const message = model.isApiOverride
+                          ? 'カスタマイズ設定を削除し、デフォルトに戻しますか？'
+                          : 'このモデルを削除しますか？';
+                        if (confirm(message)) deleteManualModelMutation.mutate(model);
+                      }}
+                    />
+                  ))}
+                </SortableContext>
+              </tbody>
+            </table>
+          </DndContext>
+        )}
       </div>
 
       {/* マニュアルモデル登録モーダル */}
-      {isManualModalOpen &&
-        createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="w-full max-w-lg bg-background border rounded-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden">
-              <header className="flex items-center justify-between p-4 border-b bg-muted/20">
-                <h3 className="font-bold text-foreground flex items-center gap-2">
-                  <Settings2 className="w-4 h-4 text-primary" />
-                  {editingManualModel?.uuid &&
-                  editingManualModel?.uuid === editingManualModel?.modelId
-                    ? 'モデル設定をカスタマイズ'
-                    : editingManualModel?.uuid
-                      ? 'モデル設定を編集'
-                      : '新しいモデルを手動登録'}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setManualModalOpen(false)}
-                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+      <Modal
+        isOpen={isManualModalOpen}
+        onClose={() => setManualModalOpen(false)}
+        maxWidth="max-w-lg"
+        title={
+          <div className="flex items-center gap-2">
+            <Settings2 className="w-4 h-4 text-primary" />
+            <span>
+              {editingManualModel?.uuid && editingManualModel?.uuid === editingManualModel?.modelId
+                ? 'モデル設定をカスタマイズ'
+                : editingManualModel?.uuid
+                  ? 'モデル設定を編集'
+                  : '新しいモデルを手動登録'}
+            </span>
+          </div>
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setManualModalOpen(false)}
+              className="px-4 py-2 rounded-md hover:bg-accent text-sm font-medium text-muted-foreground transition-colors"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 text-sm font-medium transition-all shadow-sm"
+            >
+              保存する
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-6">
+          {/* 基本設定セクション */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">基本設定</h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="manual-provider-id"
+                  className="block text-xs font-bold text-muted-foreground mb-1.5"
                 >
-                  <X className="w-5 h-5" />
-                </button>
-              </header>
-              <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
-                {/* 基本設定セクション */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">基本設定</h4>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label
-                        htmlFor="manual-provider-id"
-                        className="block text-xs font-bold text-muted-foreground mb-1.5"
-                      >
-                        プロバイダー
-                      </label>
-                      <select
-                        value={
-                          editingManualModel?.providerId ||
-                          (targetProviderId === 'all'
-                            ? providers.find((p) => p.isActive)?.id?.toString()
-                            : targetProviderId) ||
-                          ''
-                        }
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({ ...prev, providerId: e.target.value }))
-                        }
-                        disabled={!!editingManualModel?.uuid} // 編集時は変更不可推奨
-                        id="manual-provider-id"
-                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">選択してください</option>
-                        {providers.map((p) => (
-                          <option key={p.id} value={p.id?.toString()}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="manual-name"
-                        className="block text-xs font-bold text-muted-foreground mb-1.5"
-                      >
-                        表示名 (Alias)
-                      </label>
-                      <input
-                        id="manual-name"
-                        type="text"
-                        value={editingManualModel?.name || ''}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({ ...prev, name: e.target.value }))
-                        }
-                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="e.g. My Custom GPT"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="manual-model-id"
-                      className="block text-xs font-bold text-muted-foreground mb-1.5"
-                    >
-                      モデルID (API識別子)
-                    </label>
-                    <input
-                      id="manual-model-id"
-                      type="text"
-                      value={editingManualModel?.modelId || ''}
-                      onChange={(e) =>
-                        setEditingManualModel((prev) => ({ ...prev, modelId: e.target.value }))
-                      }
-                      // Override時は固定
-                      disabled={
-                        editingManualModel?.uuid !== undefined &&
-                        editingManualModel.uuid === editingManualModel?.modelId
-                      }
-                      className={`w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono ${
-                        editingManualModel?.uuid !== undefined &&
-                        editingManualModel.uuid === editingManualModel?.modelId
-                          ? 'opacity-50 cursor-not-allowed'
-                          : ''
-                      }`}
-                      placeholder="e.g. gpt-4o, llama3:8b"
-                    />
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      {editingManualModel?.uuid !== undefined &&
-                      editingManualModel.uuid === editingManualModel?.modelId
-                        ? '※API取得モデルのため変更できません'
-                        : '実際にAPIリクエストで使用されるモデルIDです。'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* 機能設定セクション */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">機能設定</h4>
-
-                  <div className="flex flex-wrap gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={editingManualModel?.enableStream ?? true}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({
-                            ...prev,
-                            enableStream: e.target.checked,
-                          }))
-                        }
-                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs font-medium">ストリーミング有効</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={editingManualModel?.supportsTools ?? true}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({
-                            ...prev,
-                            supportsTools: e.target.checked,
-                          }))
-                        }
-                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs font-medium">ツール利用 (Function Calling)</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={editingManualModel?.supportsImages ?? true}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({
-                            ...prev,
-                            supportsImages: e.target.checked,
-                          }))
-                        }
-                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs font-medium">画像/ファイル入力</span>
-                    </label>
-                  </div>
-
-                  {/* Protocol Selection (Only if provider supports Response API or general edit) */}
-                  {/* Note: We need to know if selected provider supports response API. 
-                      Since manual model editing allows changing providerId, we filter 'providers' by selected ID. */}
-                  {(() => {
-                    const currentProviderId = editingManualModel?.providerId || targetProviderId;
-                    const provider = providers.find((p) => p.id?.toString() === currentProviderId);
-
-                    if (
-                      provider?.supportsResponseApi &&
-                      RESPONSE_API_SUPPORTED_TYPES.includes(provider.type)
-                    ) {
-                      return (
-                        <div className="mt-4 p-3 border rounded-md bg-muted/10">
-                          <p className="block text-xs font-bold text-foreground mb-2">
-                            利用プロトコル
-                          </p>
-                          <div className="flex items-center gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="protocol"
-                                value="chat_completion"
-                                checked={editingManualModel?.protocol !== 'response_api'}
-                                onChange={() =>
-                                  setEditingManualModel((prev) => ({
-                                    ...prev,
-                                    protocol: 'chat_completion',
-                                  }))
-                                }
-                                className="text-primary focus:ring-primary"
-                              />
-                              <span className="text-sm">Chat Completion (Standard)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="protocol"
-                                value="response_api"
-                                checked={editingManualModel?.protocol === 'response_api'}
-                                onChange={() =>
-                                  setEditingManualModel((prev) => ({
-                                    ...prev,
-                                    protocol: 'response_api',
-                                  }))
-                                }
-                                className="text-primary focus:ring-primary"
-                              />
-                              <span className="text-sm">Response API (v1/responses)</span>
-                            </label>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground mt-2">
-                            Response APIを選択すると、Reasoning
-                            Summaryなどの新機能が利用可能になりますが、ステートレスな通信となります。
-                          </p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-
-                {/* 詳細パラメータセクション */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">
-                    詳細パラメータ
-                  </h4>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label
-                        htmlFor="manual-context-window"
-                        className="block text-xs font-bold text-muted-foreground mb-1.5"
-                      >
-                        Context Window
-                      </label>
-                      <input
-                        id="manual-context-window"
-                        type="number"
-                        value={editingManualModel?.contextWindow || ''}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({
-                            ...prev,
-                            contextWindow: Number(e.target.value),
-                          }))
-                        }
-                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="自動 (0)"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="manual-max-tokens"
-                        className="block text-xs font-bold text-muted-foreground mb-1.5"
-                      >
-                        Max Output Tokens
-                      </label>
-                      <input
-                        id="manual-max-tokens"
-                        type="number"
-                        value={editingManualModel?.maxTokens || ''}
-                        onChange={(e) =>
-                          setEditingManualModel((prev) => ({
-                            ...prev,
-                            maxTokens: Number(e.target.value),
-                          }))
-                        }
-                        className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="自動 (0)"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="manual-system-prompt"
-                      className="block text-xs font-bold text-muted-foreground mb-1.5"
-                    >
-                      Default System Prompt
-                    </label>
-                    <textarea
-                      id="manual-system-prompt"
-                      value={editingManualModel?.defaultSystemPrompt || ''}
-                      onChange={(e) =>
-                        setEditingManualModel((prev) => ({
-                          ...prev,
-                          defaultSystemPrompt: e.target.value,
-                        }))
-                      }
-                      className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
-                      placeholder="このモデルのデフォルトシステムプロンプトを設定します..."
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="manual-extra-params"
-                      className="block text-xs font-bold text-muted-foreground mb-1.5"
-                    >
-                      Extra Params (JSON)
-                    </label>
-                    <textarea
-                      id="manual-extra-params"
-                      value={
-                        typeof editingManualModel?.extraParams === 'object'
-                          ? JSON.stringify(editingManualModel?.extraParams, null, 2)
-                          : (editingManualModel?.extraParams as unknown as string) || ''
-                      }
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditingManualModel((prev) => ({
-                          ...prev,
-                          extraParams: val as unknown as Record<string, unknown>,
-                        }));
-                      }}
-                      className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono min-h-[100px] text-xs"
-                      placeholder={'{\n  "top_p": 0.9,\n  "presence_penalty": 0.5\n}'}
-                    />
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      APIリクエストに追加するパラメータをJSON形式で記述します。
-                    </p>
-                  </div>
-                </div>
+                  プロバイダー
+                </label>
+                <select
+                  value={
+                    editingManualModel?.providerId ||
+                    (targetProviderId === 'all'
+                      ? providers.find((p) => p.isActive)?.id?.toString()
+                      : targetProviderId) ||
+                    ''
+                  }
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({ ...prev, providerId: e.target.value }))
+                  }
+                  disabled={!!editingManualModel?.uuid} // 編集時は変更不可推奨
+                  id="manual-provider-id"
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">選択してください</option>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id?.toString()}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="p-4 border-t flex justify-end gap-3 bg-muted/30 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setManualModalOpen(false)}
-                  className="px-4 py-2 rounded-md hover:bg-accent text-sm font-medium text-muted-foreground transition-colors"
+              <div>
+                <label
+                  htmlFor="manual-name"
+                  className="block text-xs font-bold text-muted-foreground mb-1.5"
                 >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 text-sm font-medium transition-all shadow-sm"
-                >
-                  保存する
-                </button>
+                  表示名 (Alias)
+                </label>
+                <input
+                  id="manual-name"
+                  type="text"
+                  value={editingManualModel?.name || ''}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="e.g. My Custom GPT"
+                />
               </div>
             </div>
-          </div>,
-          document.body,
-        )}
+
+            <div>
+              <label
+                htmlFor="manual-model-id"
+                className="block text-xs font-bold text-muted-foreground mb-1.5"
+              >
+                モデルID (API識別子)
+              </label>
+              <input
+                id="manual-model-id"
+                type="text"
+                value={editingManualModel?.modelId || ''}
+                onChange={(e) =>
+                  setEditingManualModel((prev) => ({ ...prev, modelId: e.target.value }))
+                }
+                // Override時は固定
+                disabled={
+                  editingManualModel?.uuid !== undefined &&
+                  editingManualModel.uuid === editingManualModel?.modelId
+                }
+                className={`w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono ${
+                  editingManualModel?.uuid !== undefined &&
+                  editingManualModel.uuid === editingManualModel?.modelId
+                    ? 'opacity-50 cursor-not-allowed'
+                    : ''
+                }`}
+                placeholder="e.g. gpt-4o, llama3:8b"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {editingManualModel?.uuid !== undefined &&
+                editingManualModel.uuid === editingManualModel?.modelId
+                  ? '※API取得モデルのため変更できません'
+                  : '実際にAPIリクエストで使用されるモデルIDです。'}
+              </p>
+            </div>
+          </div>
+
+          {/* 機能設定セクション */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">機能設定</h4>
+
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={editingManualModel?.enableStream ?? true}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({
+                      ...prev,
+                      enableStream: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <span className="text-xs font-medium">ストリーミング有効</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={editingManualModel?.supportsTools ?? true}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({
+                      ...prev,
+                      supportsTools: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <span className="text-xs font-medium">ツール利用 (Function Calling)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer p-2 border rounded-md bg-muted/10 hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={editingManualModel?.supportsImages ?? true}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({
+                      ...prev,
+                      supportsImages: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <span className="text-xs font-medium">画像/ファイル入力</span>
+              </label>
+            </div>
+
+            {/* Protocol Selection */}
+            {(() => {
+              const currentProviderId = editingManualModel?.providerId || targetProviderId;
+              const provider = providers.find((p) => p.id?.toString() === currentProviderId);
+
+              if (
+                provider?.supportsResponseApi &&
+                RESPONSE_API_SUPPORTED_TYPES.includes(provider.type)
+              ) {
+                return (
+                  <div className="mt-4 p-3 border rounded-md bg-muted/10">
+                    <p className="block text-xs font-bold text-foreground mb-2">利用プロトコル</p>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="protocol"
+                          value="chat_completion"
+                          checked={editingManualModel?.protocol !== 'response_api'}
+                          onChange={() =>
+                            setEditingManualModel((prev) => ({
+                              ...prev,
+                              protocol: 'chat_completion',
+                            }))
+                          }
+                          className="text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm">Chat Completion (Standard)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="protocol"
+                          value="response_api"
+                          checked={editingManualModel?.protocol === 'response_api'}
+                          onChange={() =>
+                            setEditingManualModel((prev) => ({
+                              ...prev,
+                              protocol: 'response_api',
+                            }))
+                          }
+                          className="text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm">Response API (v1/responses)</span>
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      Response APIを選択すると、Reasoning
+                      Summaryなどの新機能が利用可能になりますが、ステートレスな通信となります。
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+
+          {/* 詳細パラメータセクション */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold text-foreground border-b pb-1 mb-2">詳細パラメータ</h4>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="manual-context-window"
+                  className="block text-xs font-bold text-muted-foreground mb-1.5"
+                >
+                  Context Window
+                </label>
+                <input
+                  id="manual-context-window"
+                  type="number"
+                  value={editingManualModel?.contextWindow || ''}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({
+                      ...prev,
+                      contextWindow: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="自動 (0)"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="manual-max-tokens"
+                  className="block text-xs font-bold text-muted-foreground mb-1.5"
+                >
+                  Max Output Tokens
+                </label>
+                <input
+                  id="manual-max-tokens"
+                  type="number"
+                  value={editingManualModel?.maxTokens || ''}
+                  onChange={(e) =>
+                    setEditingManualModel((prev) => ({
+                      ...prev,
+                      maxTokens: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="自動 (0)"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="manual-system-prompt"
+                className="block text-xs font-bold text-muted-foreground mb-1.5"
+              >
+                Default System Prompt
+              </label>
+              <textarea
+                id="manual-system-prompt"
+                value={editingManualModel?.defaultSystemPrompt || ''}
+                onChange={(e) =>
+                  setEditingManualModel((prev) => ({
+                    ...prev,
+                    defaultSystemPrompt: e.target.value,
+                  }))
+                }
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
+                placeholder="このモデルのデフォルトシステムプロンプトを設定します..."
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="manual-extra-params"
+                className="block text-xs font-bold text-muted-foreground mb-1.5"
+              >
+                Extra Params (JSON)
+              </label>
+              <textarea
+                id="manual-extra-params"
+                value={
+                  typeof editingManualModel?.extraParams === 'object'
+                    ? JSON.stringify(editingManualModel?.extraParams, null, 2)
+                    : (editingManualModel?.extraParams as unknown as string) || ''
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditingManualModel((prev) => ({
+                    ...prev,
+                    extraParams: val as unknown as Record<string, unknown>,
+                  }));
+                }}
+                className="w-full bg-background border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring font-mono min-h-[100px] text-xs"
+                placeholder={'{\n  "top_p": 0.9,\n  "presence_penalty": 0.5\n}'}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                APIリクエストに追加するパラメータをJSON形式で記述します。
+              </p>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
 
 interface SortableRowProps {
   model: ModelInfo;
-  index: number;
   isSelected: boolean;
-  isLast: boolean;
   onToggleEnabled: (isEnabled: boolean) => void;
   onToggleSelection: () => void;
-  onSwapOrder: (dir: 'up' | 'down') => void;
   onCopy: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -973,12 +957,9 @@ interface SortableRowProps {
 
 function SortableRow({
   model,
-  index,
   isSelected,
-  isLast,
   onToggleEnabled,
   onToggleSelection,
-  onSwapOrder,
   onCopy,
   onEdit,
   onDelete,
@@ -1041,19 +1022,28 @@ function SortableRow({
         </div>
       </td>
       <td className="p-3">
-        {model.isManual ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
-            Manual
-          </span>
-        ) : model.isCustom ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-            Custom
-          </span>
-        ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
-            API
-          </span>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {model.isManual ? (
+            <>
+              {model.isApiOverride && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  API
+                </span>
+              )}
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
+                Manual
+              </span>
+            </>
+          ) : model.isCustom ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              Custom
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              API
+            </span>
+          )}
+        </div>
       </td>
       <td className="p-3 text-center">
         <button
@@ -1067,26 +1057,6 @@ function SortableRow({
         >
           {model.isEnabled ? '有効' : '無効'}
         </button>
-      </td>
-      <td className="p-3">
-        <div className="flex items-center justify-center gap-1">
-          <button
-            type="button"
-            onClick={() => onSwapOrder('up')}
-            disabled={index === 0}
-            className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
-          >
-            <ArrowUp className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onSwapOrder('down')}
-            disabled={isLast}
-            className="p-1 hover:bg-accent rounded text-muted-foreground transition-colors disabled:opacity-30"
-          >
-            <ArrowDown className="w-4 h-4" />
-          </button>
-        </div>
       </td>
       <td className="p-3 text-center">
         <div className="flex items-center justify-center gap-1">

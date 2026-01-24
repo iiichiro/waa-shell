@@ -8,6 +8,9 @@ import { ChatMessageContent } from './message/ChatMessageContent';
 import { ChatMessageEditor } from './message/ChatMessageEditor';
 import { ChatMessageHeader } from './message/ChatMessageHeader';
 
+// メッセージアクションを表示するロール一覧
+const ACTIONS_VISIBLE_ROLES: Message['role'][] = ['user', 'assistant'] as const;
+
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
@@ -105,7 +108,7 @@ function _ChatMessage({
             />
           )}
 
-          {!isEditing && !isStreaming && (
+          {!isEditing && !isStreaming && ACTIONS_VISIBLE_ROLES.includes(message.role) && (
             <ChatMessageActions
               message={message}
               isModelEnabled={!!isModelEnabled}
@@ -134,6 +137,11 @@ export const ChatMessage = React.memo(_ChatMessage, (prev, next) => {
   // branchInfo comparison
   if (prev.branchInfo?.current !== next.branchInfo?.current) return false;
   if (prev.branchInfo?.total !== next.branchInfo?.total) return false;
+
+  // 関数プロップスの変更もチェック
+  if (prev.onCopy !== next.onCopy) return false;
+  if (prev.onEdit !== next.onEdit) return false;
+  if (prev.onRegenerate !== next.onRegenerate) return false;
 
   return true;
 });

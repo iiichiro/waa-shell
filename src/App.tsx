@@ -615,22 +615,22 @@ export default function App() {
 
       // 再生成（ブランチ無し）の場合は既存の配下を削除
       if (type === 'regenerate') {
-        // アシスタントメッセージなら自分と子孫、ユーザーなら子孫のみ
         const startId = message.role === 'assistant' ? messageId : undefined;
         if (startId) {
           await deleteMessageAndDescendants(activeThreadId, startId);
         } else {
+          // ユーザーならその直後のアシスタントメッセージ群を削除
           const allInThread = await db.messages.where('threadId').equals(activeThreadId).toArray();
           const children = allInThread.filter((m) => m.parentId === messageId);
           for (const child of children) {
             if (child.id) await deleteMessageAndDescendants(activeThreadId, child.id);
           }
         }
+        // 反映待ち
+        await queryClient.invalidateQueries({
+          queryKey: ['messages', activeThreadId],
+        });
       }
-
-      await queryClient.invalidateQueries({
-        queryKey: ['messages', activeThreadId],
-      });
 
       sendMutation.mutate({
         text: '',

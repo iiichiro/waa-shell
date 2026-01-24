@@ -19,7 +19,7 @@ export function ChatMessageActions({
   const isError = message.model === 'system';
 
   return (
-    <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="flex items-center gap-1 mt-1">
       <button
         type="button"
         onClick={() => onCopy(typeof message.content === 'string' ? message.content : '')}

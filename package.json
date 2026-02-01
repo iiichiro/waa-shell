@@ -1,7 +1,7 @@
 {
   "name": "waa-shell",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -21,6 +21,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@google/genai": "^1.36.0",
+    "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@tanstack/react-query": "^5.90.12",
     "@tauri-apps/api": "^2",

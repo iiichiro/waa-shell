@@ -60,3 +60,60 @@ Tauri の Deep Link Plugin を使用して OAuth コールバックを処理す�
 ## 4. File Service (Maintained)
 
 (No changes)
+
+## 5. MCP App Resource Service (`services/mcp-app`)
+
+### 概要
+
+MCP Apps対応サーバーからUIリソースを取得し、チャット上にインタラクティブUIを表示するためのサービス。
+
+### インターフェース
+
+```typescript
+// MCP Apps UIのメタデータ（db.tsで定義）
+interface McpAppUiData {
+  resourceUri: string;  // ui://スキームのリソースURI
+  permissions?: string[];
+  csp?: { allowedOrigins?: string[] };
+}
+
+// リソース取得
+async function fetchMcpAppResource(mcpAppUi: McpAppUiData): Promise<string | null>;
+
+// サーバー名からIDを取得
+async function getServerIdByName(serverName: string): Promise<number | null>;
+```
+
+### 機能
+
+1. **ui://リソース解決**: resourceUriからサーバー名とパスを抽出
+2. **HTTPリソース取得**: MCPサーバーの/resources/エンドポイントからHTMLを取得
+3. **認証サポート**: OIDCトークンをヘッダーに追加
+
+## 6. MCP Service 拡張
+
+### ツール実行結果の拡張
+
+```typescript
+// ツール実行結果（メタデータ付き）
+interface McpToolExecutionResult {
+  content: string;
+  mcpAppUi?: McpAppUiData;  // MCP Apps UIメタデータ
+}
+
+// _meta.uiメタデータを抽出
+function extractMcpAppUiMetadata(result: unknown): McpAppUiData | undefined;
+
+// メタデータ付きツール実行
+async function executeMcpToolWithMetadata(
+  serverName: string,
+  toolName: string,
+  args: unknown
+): Promise<McpToolExecutionResult>;
+```
+
+### 処理フロー
+
+1. ツール実行結果から`_meta.ui`メタデータを抽出
+2. `resourceUri`が`ui://`スキームで始まるか確認
+3. 有効なメタデータが存在する場合、`mcpAppUi`フィールドに保存

@@ -11,12 +11,12 @@ import type {
   ResponseStreamEvent,
 } from 'openai/resources/responses/responses';
 import { DEFAULT_SUPPORTS_IMAGES, DEFAULT_SUPPORTS_TOOLS } from '../constants/ConfigConstants';
-import { db, type Message } from '../db';
+import { db, type McpAppUiData, type Message } from '../db';
 import { getActivePathMessages } from '../db/threads';
 import { dataURLToBlob } from '../utils/image';
 import { fileToBase64 } from './FileService';
 import { chatCompletion, createResponse, listModels } from './ModelService';
-import { executeTool, getToolDefinitions } from './ToolService';
+import { executeToolWithMetadata, getToolDefinitions } from './ToolService';
 
 interface ThinkingBlock {
   type: 'thinking';
@@ -395,9 +395,15 @@ export async function sendMessage(
 
           for (const toolCall of responseToolCalls) {
             let toolResult = '';
+            let mcpAppUi: McpAppUiData | undefined;
             try {
               const args = JSON.parse(toolCall.function.arguments);
-              toolResult = await executeTool(toolCall.function.name, args);
+              const toolExecutionResult = await executeToolWithMetadata(
+                toolCall.function.name,
+                args,
+              );
+              toolResult = toolExecutionResult.content;
+              mcpAppUi = toolExecutionResult.mcpAppUi;
             } catch (e) {
               toolResult = `Error: ${String(e)}`;
             }
@@ -407,6 +413,7 @@ export async function sendMessage(
               role: 'tool',
               content: toolResult,
               tool_call_id: toolCall.id,
+              mcpAppUi,
               parentId: currentParentId,
               createdAt: new Date(),
             });
@@ -509,9 +516,12 @@ export async function sendMessage(
         for (const toolCall of message.tool_calls) {
           if (toolCall.type !== 'function') continue;
           let toolResult = '';
+          let mcpAppUi: McpAppUiData | undefined;
           try {
             const args = JSON.parse(toolCall.function.arguments);
-            toolResult = await executeTool(toolCall.function.name, args);
+            const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+            toolResult = toolExecutionResult.content;
+            mcpAppUi = toolExecutionResult.mcpAppUi;
           } catch (e) {
             toolResult = `Error: ${String(e)}`;
           }
@@ -521,6 +531,7 @@ export async function sendMessage(
             role: 'tool',
             content: toolResult,
             tool_call_id: toolCall.id,
+            mcpAppUi,
             parentId: currentParentId,
             createdAt: new Date(),
           });
@@ -694,9 +705,12 @@ async function* handleStreamResponse(
 
     for (const toolCall of toolCalls) {
       let toolResult = '';
+      let mcpAppUi: McpAppUiData | undefined;
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        toolResult = await executeTool(toolCall.function.name, args);
+        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+        toolResult = toolExecutionResult.content;
+        mcpAppUi = toolExecutionResult.mcpAppUi;
       } catch (e) {
         toolResult = `Error: ${String(e)}`;
       }
@@ -705,6 +719,7 @@ async function* handleStreamResponse(
         role: 'tool',
         content: toolResult,
         tool_call_id: toolCall.id,
+        mcpAppUi,
         parentId: currentParentId,
         createdAt: new Date(),
       });
@@ -823,9 +838,12 @@ async function* handleResponseStream(
 
     for (const toolCall of responseToolCalls) {
       let toolResult = '';
+      let mcpAppUi: McpAppUiData | undefined;
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        toolResult = await executeTool(toolCall.function.name, args);
+        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+        toolResult = toolExecutionResult.content;
+        mcpAppUi = toolExecutionResult.mcpAppUi;
       } catch (e) {
         toolResult = `Error: ${String(e)}`;
       }
@@ -835,6 +853,7 @@ async function* handleResponseStream(
         role: 'tool',
         content: toolResult,
         tool_call_id: toolCall.id,
+        mcpAppUi,
         parentId: currentParentId,
         createdAt: new Date(),
       });

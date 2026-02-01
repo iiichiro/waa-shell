@@ -2,13 +2,55 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { db, type McpServer } from '../db';
+import { db, type McpAppUiData, type McpServer } from '../db';
 import { getAccessToken } from './AuthService';
 
 // サーバIDごとのクライアントインスタンスを保持
 const clients = new Map<number, Client>();
 // サーバIDごとの接続ステータスを保持
 const serverStatuses = new Map<number, 'success' | 'error' | 'none'>();
+
+/**
+ * MCPツール実行結果
+ */
+export interface McpToolExecutionResult {
+  content: string; // ツール実行結果のテキスト内容
+  mcpAppUi?: McpAppUiData; // MCP Apps UIのメタデータ（存在する場合）
+}
+
+/**
+ * ツール実行結果から_meta.uiメタデータを抽出する
+ */
+function extractMcpAppUiMetadata(result: unknown): McpAppUiData | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+
+  // biome-ignore lint/suspicious/noExplicitAny: MCP result structure varies
+  const resultObj = result as Record<string, any>;
+  const meta = resultObj._meta;
+  if (!meta || typeof meta !== 'object') return undefined;
+
+  const ui = meta.ui;
+  if (!ui || typeof ui !== 'object') return undefined;
+
+  const resourceUri = ui.resourceUri;
+  if (!resourceUri || typeof resourceUri !== 'string') return undefined;
+
+  // resourceUriがui://スキームで始まるか確認
+  if (!resourceUri.startsWith('ui://')) return undefined;
+
+  return {
+    resourceUri,
+    permissions: Array.isArray(ui.permissions) ? ui.permissions : undefined,
+    csp:
+      ui.csp && typeof ui.csp === 'object'
+        ? {
+            allowedOrigins: Array.isArray(ui.csp.allowedOrigins)
+              ? ui.csp.allowedOrigins
+              : undefined,
+          }
+        : undefined,
+  };
+}
 
 /**
  * サーバの現在の接続状態を確認する
@@ -142,13 +184,13 @@ export async function getMcpToolsByServerId(serverId: number): Promise<Tool[]> {
 }
 
 /**
- * MCP ツールの実行
+ * MCP ツールの実行（UIメタデータ付き）
  */
-export async function executeMcpTool(
+export async function executeMcpToolWithMetadata(
   serverName: string,
   toolName: string,
   args: unknown,
-): Promise<string> {
+): Promise<McpToolExecutionResult> {
   const server = await db.mcpServers.where('name').equals(serverName).first();
   if (!server || !server.id) throw new Error(`MCP Server ${serverName} not found.`);
 
@@ -158,7 +200,25 @@ export async function executeMcpTool(
     arguments: args as Record<string, unknown>,
   });
 
-  return JSON.stringify(result.content);
+  // _meta.uiメタデータを抽出
+  const mcpAppUi = extractMcpAppUiMetadata(result);
+
+  return {
+    content: JSON.stringify(result.content),
+    mcpAppUi,
+  };
+}
+
+/**
+ * MCP ツールの実行（後方互換性のため文字列を返すラッパー）
+ */
+export async function executeMcpTool(
+  serverName: string,
+  toolName: string,
+  args: unknown,
+): Promise<string> {
+  const result = await executeMcpToolWithMetadata(serverName, toolName, args);
+  return result.content;
 }
 
 /**

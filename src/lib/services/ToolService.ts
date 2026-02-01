@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import { useAppStore } from '../../store/useAppStore';
-import { executeMcpTool, getAllMcpTools } from './McpService';
+import type { McpAppUiData } from '../db';
+import { executeMcpToolWithMetadata, getAllMcpTools } from './McpService';
 
 /**
  * ローカルツールの定義インターフェース
@@ -98,25 +99,51 @@ export async function getToolDefinitions(): Promise<OpenAI.Chat.ChatCompletionTo
 }
 
 /**
- * ツールを実行する
+ * ツール実行結果（メタデータ付き）
  */
-export async function executeTool(name: string, args: unknown): Promise<string> {
-  console.log(`Executing tool: ${name}`, args);
+export interface ToolExecutionResult {
+  content: string;
+  mcpAppUi?: McpAppUiData;
+}
+
+/**
+ * ツールを実行する（メタデータ付き）
+ */
+export async function executeToolWithMetadata(
+  name: string,
+  args: unknown,
+): Promise<ToolExecutionResult> {
+  console.log(`Executing tool with metadata: ${name}`, args);
 
   // ローカルツールの実行
   const localTool = localToolRegistry.find(
     (t) => (t.schema as { function?: { name: string } }).function?.name === name,
   );
   if (localTool) {
-    return localTool.execute(args);
+    const content = await localTool.execute(args);
+    return { content };
   }
 
   // MCP ツールの判定 (server__tool 形式)
   if (name.includes('__')) {
     const [serverName, ...toolNameParts] = name.split('__');
     const toolName = toolNameParts.join('__');
-    return executeMcpTool(serverName, toolName, args);
+    const mcpResult = await executeMcpToolWithMetadata(serverName, toolName, args);
+    return {
+      content: mcpResult.content,
+      mcpAppUi: mcpResult.mcpAppUi,
+    };
   }
 
-  return `Tool ${name} is not implemented yet.`;
+  return {
+    content: `Tool ${name} is not implemented yet.`,
+  };
+}
+
+/**
+ * ツールを実行する（後方互換性のため文字列を返すラッパー）
+ */
+export async function executeTool(name: string, args: unknown): Promise<string> {
+  const result = await executeToolWithMetadata(name, args);
+  return result.content;
 }

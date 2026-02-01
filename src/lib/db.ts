@@ -14,6 +14,17 @@ export interface Thread {
 }
 
 /**
+ * MCP Apps UIのメタデータ
+ */
+export interface McpAppUiData {
+  resourceUri: string; // ui://スキームのリソースURI
+  permissions?: string[]; // 追加権限（カメラ、マイク等）
+  csp?: {
+    allowedOrigins?: string[]; // 許可された外部オリジン
+  };
+}
+
+/**
  * メッセージ情報（個別の一問一答）
  */
 export interface Message {
@@ -23,6 +34,7 @@ export interface Message {
   content: string; // テキスト本文
   tool_calls?: OpenAI.Chat.ChatCompletionMessageToolCall[]; // AIからのツール呼び出し要求
   tool_call_id?: string; // ツール実行結果メッセージの場合の呼び出しID
+  mcpAppUi?: McpAppUiData; // MCP Apps UIのメタデータ（MCP App対応ツールの場合）
   usage?: {
     // トークン使用量
     promptTokens: number;

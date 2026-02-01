@@ -1,6 +1,8 @@
-import { Terminal, Wrench } from 'lucide-react';
+import { AppWindow, Terminal, Wrench } from 'lucide-react';
 import type OpenAI from 'openai';
+import { useState } from 'react';
 import type { LocalFile, Message } from '../../../lib/db';
+import { McpAppHost } from '../../mcp-app/McpAppHost';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { ImageAttachment } from './ImageAttachment';
 
@@ -27,6 +29,9 @@ export function ChatMessageContent({
   onPreviewFile,
 }: ChatMessageContentProps) {
   const isError = message.model === 'system';
+
+  // MCP Apps UI表示状態
+  const [showMcpAppUi, setShowMcpAppUi] = useState(false);
 
   return (
     <div
@@ -96,29 +101,89 @@ export function ChatMessageContent({
 
           {/* メインコンテンツ (OUTPUT for tools or regular message) */}
           {message.role === 'tool' ? (
-            <details className="group/tool-output bg-success/5 border border-success/30 rounded-lg overflow-hidden mb-2">
-              <summary className="cursor-pointer p-3 flex items-center justify-between hover:bg-success/5 transition-colors select-none list-none text-success">
-                <div className="flex items-center gap-2 text-xs font-bold">
-                  <Terminal className="w-3 h-3" />
-                  <span>ツール実行結果 (LLMへの入力)</span>
+            <div className="space-y-2">
+              {/* MCP Apps UI対応: UIメタデータが存在する場合 */}
+              {message.mcpAppUi && (
+                <div className="bg-accent/5 border border-accent/30 rounded-lg overflow-hidden">
+                  {!showMcpAppUi ? (
+                    // UI未表示時: 表示ボタンを表示
+                    <button
+                      type="button"
+                      onClick={() => setShowMcpAppUi(true)}
+                      className="w-full p-3 flex items-center justify-between hover:bg-accent/10 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 text-xs font-bold text-accent">
+                        <AppWindow className="w-3 h-3" />
+                        <span>MCP Apps UIを表示</span>
+                      </div>
+                      <span className="text-[10px] opacity-50">▶</span>
+                    </button>
+                  ) : (
+                    // UI表示時: MCP Appをレンダリング
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-accent">
+                          <AppWindow className="w-3 h-3" />
+                          <span>MCP Apps</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowMcpAppUi(false)}
+                          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          閉じる
+                        </button>
+                      </div>
+                      <McpAppHost
+                        mcpAppUi={message.mcpAppUi}
+                        onError={(error) => console.error('MCP App error:', error)}
+                      />
+                    </div>
+                  )}
                 </div>
-                <span className="text-[10px] opacity-50 group-open/tool-output:rotate-180 transition-transform">
-                  ▼
-                </span>
-              </summary>
-              <div className="px-3 pb-3">
-                <MarkdownRenderer
-                  content={
-                    typeof message.content === 'string'
-                      ? message.content.trim().startsWith('{') ||
-                        message.content.trim().startsWith('[')
-                        ? `\`\`\`json\n${formatJson(message.content)}\n\`\`\``
-                        : message.content
-                      : ''
-                  }
-                />
-              </div>
-            </details>
+              )}
+
+              {/* ツール実行結果（JSON） - MCP Apps対応時は折りたたみ表示 */}
+              <details
+                className={`group/tool-output border rounded-lg overflow-hidden ${
+                  message.mcpAppUi
+                    ? 'bg-foreground/5 border-border/50'
+                    : 'bg-success/5 border-success/30'
+                }`}
+              >
+                <summary
+                  className={`cursor-pointer p-3 flex items-center justify-between transition-colors select-none list-none ${
+                    message.mcpAppUi
+                      ? 'hover:bg-foreground/5 text-muted-foreground'
+                      : 'hover:bg-success/5 text-success'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <Terminal className="w-3 h-3" />
+                    <span>
+                      {message.mcpAppUi
+                        ? '生データ（ツール実行結果）'
+                        : 'ツール実行結果 (LLMへの入力)'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] opacity-50 group-open/tool-output:rotate-180 transition-transform">
+                    ▼
+                  </span>
+                </summary>
+                <div className="px-3 pb-3">
+                  <MarkdownRenderer
+                    content={
+                      typeof message.content === 'string'
+                        ? message.content.trim().startsWith('{') ||
+                          message.content.trim().startsWith('[')
+                          ? `\`\`\`json\n${formatJson(message.content)}\n\`\`\``
+                          : message.content
+                        : ''
+                    }
+                  />
+                </div>
+              </details>
+            </div>
           ) : (
             <div className="space-y-2">
               <MarkdownRenderer

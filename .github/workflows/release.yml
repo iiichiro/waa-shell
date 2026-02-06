@@ -79,12 +79,33 @@ jobs:
             ### Linux
             - `.deb` - Debian/Ubuntu パッケージ
             - `.rpm` - Fedora/RHEL パッケージ
+
+            ### Frontend Assets
+            - `dist.zip` - Web 資材 (Zip)
+            - `dist.tar.gz` - Web 資材 (Tarball)
             
             ---
             See the full changelog in the repository.
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Archive frontend assets
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          zip -r dist.zip dist
+          tar -czf dist.tar.gz dist
+
+      - name: Upload frontend assets to release
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist.zip
+            dist.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -94,4 +115,6 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            dist.zip
+            dist.tar.gz
           if-no-files-found: ignore

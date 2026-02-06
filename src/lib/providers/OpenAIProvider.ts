@@ -76,23 +76,41 @@ export class OpenAIProvider extends AbstractProvider {
 
     const processedTools = this.processTools(params.tools);
 
-    const requestBody = {
+    // Build the initial request body
+    // metadataなどの余計なプロパティが混入しないよう、必要なものだけを構築する
+    const requestBody: Record<string, unknown> = {
       ...params,
-      ...extraParams,
+      ...extraParams, // extraParams (reasoning_effort etc) take precedence
       tools: processedTools,
       messages,
       model: model,
-    } as OpenAI.Chat.ChatCompletionCreateParams;
+    };
+
+    // reasoning_effort (Top-level) handling
+    // If reasoning_effort is present (o1 models, etc), max_tokens should be max_completion_tokens
+    if (extraParams && 'reasoning_effort' in extraParams) {
+      if (requestBody.max_tokens !== undefined) {
+        requestBody.max_completion_tokens = requestBody.max_tokens;
+        delete requestBody.max_tokens;
+      }
+    }
+
+    // Clean up undefined values (Important for strict API validation)
+    Object.keys(requestBody).forEach((key) => {
+      if (requestBody[key] === undefined) {
+        delete requestBody[key];
+      }
+    });
 
     if (options.stream) {
       return this.client.chat.completions.create(
-        { ...requestBody, stream: true },
+        { ...requestBody, stream: true } as OpenAI.Chat.ChatCompletionCreateParams,
         { signal },
       ) as Promise<Stream<ChatCompletionChunk>>;
     }
 
     return this.client.chat.completions.create(
-      { ...requestBody, stream: false },
+      { ...requestBody, stream: false } as OpenAI.Chat.ChatCompletionCreateParams,
       { signal },
     ) as Promise<ChatCompletion>;
   }
@@ -104,13 +122,28 @@ export class OpenAIProvider extends AbstractProvider {
 
     const processedTools = this.processTools(params.tools);
 
-    const requestBody = {
+    const requestBody: Record<string, unknown> = {
       ...params,
       ...extraParams,
       tools: processedTools,
       input,
       model: model,
     };
+
+    // reasoning_effort handling for Response API
+    if (extraParams && 'reasoning_effort' in extraParams) {
+      if (requestBody.max_tokens !== undefined) {
+        requestBody.max_completion_tokens = requestBody.max_tokens;
+        delete requestBody.max_tokens;
+      }
+    }
+
+    // Clean up undefined values
+    Object.keys(requestBody).forEach((key) => {
+      if (requestBody[key] === undefined) {
+        delete requestBody[key];
+      }
+    });
 
     if (options.stream) {
       return this.client.responses.create(

@@ -1,8 +1,39 @@
-import { Globe, Wrench, Zap } from 'lucide-react';
+import { Globe, type LucideIcon, Wrench, Zap } from 'lucide-react';
 import { getLocalTools } from '../../lib/services/ToolService';
 import { useAppStore } from '../../store/useAppStore';
 import { EmptyState } from '../common/EmptyState';
 import { Switch } from '../common/Switch';
+
+interface ToolCardProps {
+  id: string;
+  name: string;
+  description: string;
+  icon: LucideIcon;
+  isEnabled: boolean;
+  onToggle: (checked: boolean) => void;
+}
+
+function ToolCard({ id, name, description, icon: Icon, isEnabled, onToggle }: ToolCardProps) {
+  return (
+    <div className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary border-primary/20">
+      <div className="flex items-start gap-4">
+        <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
+          <Icon className="w-5 h-5" />
+        </div>
+        <div>
+          <h4 className="font-bold text-foreground mb-1.5">{name}</h4>
+          <p className="text-sm text-muted-foreground mb-2">{description}</p>
+          <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
+            {id}
+          </code>
+        </div>
+      </div>
+      <div className="flex items-center">
+        <Switch checked={isEnabled} onChange={onToggle} />
+      </div>
+    </div>
+  );
+}
 
 export function ToolSettings() {
   const { enabledTools, setToolEnabled, enabledBuiltInTools, setBuiltInToolEnabled } =
@@ -33,37 +64,17 @@ export function ToolSettings() {
         </div>
 
         <div className="grid gap-4">
-          {builtInTools.map((tool) => {
-            const isEnabled = enabledBuiltInTools[tool.id] === true;
-            const Icon = tool.icon;
-
-            return (
-              <div
-                key={tool.id}
-                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary border-primary/20"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-foreground mb-1.5">{tool.name}</h4>
-                    <p className="text-sm text-muted-foreground mb-2">{tool.description}</p>
-                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
-                      {tool.id}
-                    </code>
-                  </div>
-                </div>
-
-                <div className="flex items-center">
-                  <Switch
-                    checked={isEnabled}
-                    onChange={(checked) => setBuiltInToolEnabled(tool.id, checked)}
-                  />
-                </div>
-              </div>
-            );
-          })}
+          {builtInTools.map((tool) => (
+            <ToolCard
+              key={tool.id}
+              id={tool.id}
+              name={tool.name}
+              description={tool.description}
+              icon={tool.icon}
+              isEnabled={enabledBuiltInTools[tool.id] === true}
+              onToggle={(checked) => setBuiltInToolEnabled(tool.id, checked)}
+            />
+          ))}
         </div>
       </div>
 
@@ -79,36 +90,17 @@ export function ToolSettings() {
         </div>
 
         <div className="grid gap-4">
-          {localTools.map((tool) => {
-            const isEnabled = enabledTools[tool.id] !== false; // Default true
-
-            return (
-              <div
-                key={tool.id}
-                className="flex items-start justify-between p-4 rounded-lg border bg-muted/30 text-foreground transition-all hover:border-primary border-primary/20"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="mt-1 p-2 rounded-md bg-primary/10 text-primary">
-                    <Wrench className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-foreground mb-1.5">{tool.name}</h4>
-                    <p className="text-sm text-muted-foreground mb-2">{tool.description}</p>
-                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground block w-fit">
-                      {tool.id}
-                    </code>
-                  </div>
-                </div>
-
-                <div className="flex items-center">
-                  <Switch
-                    checked={isEnabled}
-                    onChange={(checked) => setToolEnabled(tool.id, checked)}
-                  />
-                </div>
-              </div>
-            );
-          })}
+          {localTools.map((tool) => (
+            <ToolCard
+              key={tool.id}
+              id={tool.id}
+              name={tool.name}
+              description={tool.description}
+              icon={Wrench}
+              isEnabled={enabledTools[tool.id] !== false}
+              onToggle={(checked) => setToolEnabled(tool.id, checked)}
+            />
+          ))}
 
           {localTools.length === 0 && (
             <EmptyState

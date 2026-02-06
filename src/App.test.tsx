@@ -1,8 +1,30 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useAppStore } from './store/useAppStore';
+
+// vi.hoisted を使用して巻き上げ問題を解決
+const { mockThreadSettingsModal } = vi.hoisted(() => ({
+  mockThreadSettingsModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+    useEffect(() => {
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && isOpen) {
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleEscape);
+      return () => window.removeEventListener('keydown', handleEscape);
+    }, [isOpen, onClose]);
+
+    return isOpen ? (
+      <div role="dialog" aria-label="スレッド設定">
+        Thread Settings Modal Content
+      </div>
+    ) : null;
+  },
+}));
 
 // 子コンポーネントをスタブ化
 vi.mock('./components/layout/Sidebar', () => ({
@@ -104,12 +126,7 @@ vi.mock('./components/common/FileExplorer', () => ({
 }));
 
 vi.mock('./components/chat/ThreadSettingsModal', () => ({
-  ThreadSettingsModal: ({ isOpen }: { isOpen: boolean }) =>
-    isOpen ? (
-      <div role="dialog" aria-label="スレッド設定">
-        Thread Settings Modal Content
-      </div>
-    ) : null,
+  ThreadSettingsModal: mockThreadSettingsModal,
 }));
 
 vi.mock('./components/chat/ChatMessage', () => ({ ChatMessage: () => null }));

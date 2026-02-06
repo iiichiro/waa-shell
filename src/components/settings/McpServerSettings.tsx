@@ -23,6 +23,7 @@ import {
   testMcpConfig,
 } from '../../lib/services/McpService';
 import { useAppStore } from '../../store/useAppStore';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
 import { Modal } from '../common/Modal';
 import { Switch } from '../common/Switch';
@@ -42,6 +43,50 @@ export function McpServerSettings() {
   const [connectionStatuses, setConnectionStatuses] = useState<
     Record<number, 'success' | 'error' | 'none'>
   >(getAllServerStatuses());
+
+  // Confirm/Alert State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    showCancel?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const showConfirm = (opts: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }) => {
+    setConfirmState({
+      isOpen: true,
+      showCancel: true,
+      ...opts,
+    });
+  };
+
+  const showAlert = (message: string, title = '通知') => {
+    setConfirmState({
+      isOpen: true,
+      title: title,
+      message,
+      confirmText: 'OK',
+      showCancel: false,
+      isDestructive: false,
+      onConfirm: () => {},
+    });
+  };
 
   // サーバ一覧取得
   const { data: servers = [] } = useQuery({
@@ -107,7 +152,7 @@ export function McpServerSettings() {
       setEditingServer(null);
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : '保存に失敗しました');
+      showAlert(error instanceof Error ? error.message : '保存に失敗しました', '保存エラー');
     },
   });
 
@@ -149,9 +194,12 @@ export function McpServerSettings() {
     setPingingId(pingKey);
     try {
       await testMcpConfig(server);
-      alert('接続に成功しました！');
+      showAlert('接続に成功しました！', '接続成功');
     } catch (e) {
-      alert(`接続に失敗しました: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      showAlert(
+        `接続に失敗しました: ${e instanceof Error ? e.message : 'Unknown error'}`,
+        '接続エラー',
+      );
     } finally {
       if (server.id) {
         setConnectionStatuses(getAllServerStatuses());
@@ -278,9 +326,13 @@ export function McpServerSettings() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`サーバ "${s.name}" を削除しますか？`)) {
-                        deleteMutation.mutate(s);
-                      }
+                      showConfirm({
+                        title: 'サーバの削除',
+                        message: `サーバ "${s.name}" を削除しますか？`,
+                        confirmText: '削除',
+                        isDestructive: true,
+                        onConfirm: () => deleteMutation.mutate(s),
+                      });
                     }}
                     className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                     title="削除"
@@ -428,6 +480,18 @@ export function McpServerSettings() {
           onClose={() => setManagingToolsServerId(null)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        onClose={() => setConfirmState((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        isDestructive={confirmState.isDestructive}
+        showCancel={confirmState.showCancel}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import type { Thread } from '../../lib/db';
 import { listThreads } from '../../lib/db/threads';
 import { deleteMultipleThreads, deleteThread } from '../../lib/services/ChatService';
 import { useAppStore } from '../../store/useAppStore';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 interface SidebarProps {
   className?: string;
@@ -37,6 +38,17 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<number>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   const { data: threads = [] } = useQuery({
     queryKey: ['threads'],
@@ -98,11 +110,12 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
 
   const handleDeleteSelected = () => {
     if (selectedThreadIds.size === 0) return;
-    if (
-      confirm(`${selectedThreadIds.size}件のスレッドを削除しますか？\nこの操作は取り消せません。`)
-    ) {
-      deleteMultipleMutation.mutate(Array.from(selectedThreadIds));
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'スレッドの削除',
+      message: `${selectedThreadIds.size}件のスレッドを削除しますか？\nこの操作は取り消せません。`,
+      onConfirm: () => deleteMultipleMutation.mutate(Array.from(selectedThreadIds)),
+    });
   };
 
   const handleThreadClick = (id: number) => {
@@ -125,17 +138,15 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
       className={`w-64 h-full bg-sidebar text-sidebar-foreground border-r flex flex-col shrink-0 ${className}`}
     >
       <div className="p-4 space-y-2">
-        <div className="p-4 space-y-2">
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="w-full py-2 px-3 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md flex items-center justify-center gap-2 transition-all shadow-sm text-sm font-medium"
-            data-testid="new-chat-button"
-          >
-            <Plus className="w-4 h-4" />
-            <span>新しいチャット</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleNewChat}
+          className="w-full py-2 px-3 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md flex items-center justify-center gap-2 transition-all shadow-sm text-sm font-medium"
+          data-testid="new-chat-button"
+        >
+          <Plus className="w-4 h-4" />
+          <span>新しいチャット</span>
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 space-y-1">
@@ -236,13 +247,14 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (
-                      thread.id &&
-                      confirm(
-                        'このスレッドを削除しますか？\n関連するメッセージもすべて削除されます。',
-                      )
-                    ) {
-                      deleteMutation.mutate(thread.id);
+                    if (thread.id) {
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: 'スレッドの削除',
+                        message:
+                          'このスレッドを削除しますか？\n関連するメッセージもすべて削除されます。',
+                        onConfirm: () => deleteMutation.mutate(thread.id as number),
+                      });
                     }
                   }}
                   className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-foreground/10 rounded-md text-muted-foreground hover:text-destructive transition-all"
@@ -332,6 +344,16 @@ export function Sidebar({ className = '', onClose, onNewChat }: SidebarProps) {
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        isDestructive={true}
+        confirmText="削除"
+      />
     </aside>
   );
 }

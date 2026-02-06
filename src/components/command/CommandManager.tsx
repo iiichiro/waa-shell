@@ -10,6 +10,7 @@ import {
   upsertSlashCommand,
 } from '../../lib/services/TemplateService';
 import { useAppStore } from '../../store/useAppStore';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { CommonHeader } from '../layout/CommonHeader';
 
 /**
@@ -19,6 +20,38 @@ export function CommandManager() {
   const queryClient = useQueryClient();
   const [editingCommand, setEditingCommand] = useState<Partial<SlashCommand> | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Confirm/Alert State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    showCancel?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const showConfirm = (opts: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }) => {
+    setConfirmState({
+      isOpen: true,
+      showCancel: true,
+      ...opts,
+    });
+  };
 
   // コマンド一覧の取得
   const { data: commands = [] } = useQuery({
@@ -175,9 +208,15 @@ export function CommandManager() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm('このコマンドを削除しますか？')) {
-                              cmd.id && deleteMutation.mutate(cmd.id);
-                            }
+                            showConfirm({
+                              title: 'コマンドの削除',
+                              message: 'このコマンドを削除しますか？',
+                              confirmText: '削除',
+                              isDestructive: true,
+                              onConfirm: () => {
+                                if (cmd.id) deleteMutation.mutate(cmd.id);
+                              },
+                            });
                           }}
                           className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors"
                           title="削除"
@@ -345,6 +384,17 @@ export function CommandManager() {
           </div>,
           document.body,
         )}
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        onClose={() => setConfirmState((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        isDestructive={confirmState.isDestructive}
+        showCancel={confirmState.showCancel}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "Waa-Shell"
-version = "0.1.10"
+version = "0.1.11"
 description = "Waa-Shell"
 authors = ["iiichiro"]
 edition = "2021"

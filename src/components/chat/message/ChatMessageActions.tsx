@@ -18,6 +18,13 @@ export function ChatMessageActions({
 }: ChatMessageActionsProps) {
   const isError = message.model === 'system';
 
+  const actionButtonClass = (enabled: boolean) =>
+    `p-1.5 rounded-md transition-colors ${
+      enabled
+        ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
+        : 'text-muted-foreground/30 cursor-not-allowed'
+    }`;
+
   return (
     <div className="flex items-center gap-1 mt-1">
       <button
@@ -34,11 +41,7 @@ export function ChatMessageActions({
             type="button"
             onClick={() => message.id && onRegenerate(message.id, 'regenerate')}
             disabled={!isModelEnabled}
-            className={`p-1.5 rounded-md transition-colors ${
-              isModelEnabled
-                ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                : 'text-muted-foreground/30 cursor-not-allowed'
-            }`}
+            className={actionButtonClass(isModelEnabled)}
             title={
               isModelEnabled
                 ? '再生成（ブランチ無し）'
@@ -51,11 +54,7 @@ export function ChatMessageActions({
             type="button"
             onClick={() => message.id && onRegenerate(message.id, 'branch')}
             disabled={!isModelEnabled}
-            className={`p-1.5 rounded-md transition-colors ${
-              isModelEnabled
-                ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                : 'text-muted-foreground/30 cursor-not-allowed'
-            }`}
+            className={actionButtonClass(isModelEnabled)}
             title={
               isModelEnabled
                 ? '再生成（新規ブランチ）'
@@ -74,11 +73,7 @@ export function ChatMessageActions({
           type="button"
           onClick={onEdit}
           disabled={!isModelEnabled}
-          className={`p-1.5 rounded-md transition-colors ${
-            isModelEnabled
-              ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-              : 'text-muted-foreground/30 cursor-not-allowed'
-          }`}
+          className={actionButtonClass(isModelEnabled)}
           title={isModelEnabled ? '編集' : '選択中のモデルが無効なため編集できません'}
         >
           <Edit2 className="w-3.5 h-3.5" />

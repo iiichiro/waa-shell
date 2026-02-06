@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Database, Download, Keyboard, MousePointer2, Trash2, Upload, Wand2 } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { useConfirm } from '../../hooks/useConfirm';
 import { db } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
 import {
@@ -11,6 +12,7 @@ import {
   importData,
 } from '../../lib/utils/backup';
 import { useAppStore } from '../../store/useAppStore';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { Switch } from '../common/Switch';
 
 export function GeneralSettings() {
@@ -48,6 +50,8 @@ export function GeneralSettings() {
     general: true,
   });
 
+  const { confirmProps, showConfirm, showAlert } = useConfirm();
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: providers = [] } = useQuery({
@@ -61,24 +65,10 @@ export function GeneralSettings() {
   });
 
   const activeProviders = providers.filter((p) => p.isActive);
+  // プロバイダーが選択されていれば、そのプロバイダーのモデルのみ表示
   const availableModels = models.filter((m) => {
-    // もしプロバイダーが選択されていれば、そのプロバイダーのモデルのみ表示
-    if (titleGenerationProvider) {
-      if (m.isManual || m.isCustom) {
-        // manual/custom models usually have providerId
-        // check if this model belongs to the selected provider (need to check implementation of ModelInfo)
-        // ModelInfo doesn't explicitly have providerId top-level always, but let's assume filtering by source or similar
-        // actually ModelService listModels returns mixture.
-        // Let's filter by checking if the model's provider matches.
-        // But ModelService listModels structure is flat.
-        // For simplicity, let's just show all enabled models or try to filter if possible.
-        // Since `listModels` aggregates, we might need a way to link model to provider.
-        // The `ModelInfo` interface has `providerId` (string).
-        return m.providerId === titleGenerationProvider;
-      }
-      return m.providerId === titleGenerationProvider;
-    }
-    return true;
+    if (!titleGenerationProvider) return true;
+    return m.providerId === titleGenerationProvider;
   });
 
   const handleExport = async () => {
@@ -93,7 +83,7 @@ export function GeneralSettings() {
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error('Export failed:', e);
-      alert('エクスポートに失敗しました。');
+      showAlert('エクスポートに失敗しました。', 'エラー');
     }
   };
 
@@ -101,21 +91,26 @@ export function GeneralSettings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!confirm('設定をインポートしますか？選択された項目の既存データは上書きされます。')) {
+    const runImport = async () => {
+      try {
+        const text = await file.text();
+        await importData(text);
+        showAlert('インポートが完了しました。アプリを再読み込みします。', '完了');
+        setTimeout(() => window.location.reload(), 1500);
+      } catch (e) {
+        console.error('Import failed:', e);
+        showAlert('インポートに失敗しました。ファイル形式が正しくない可能性があります。', 'エラー');
+      }
       e.target.value = '';
-      return;
-    }
+    };
 
-    try {
-      const text = await file.text();
-      await importData(text);
-      alert('インポートが完了しました。アプリを再読み込みします。');
-      window.location.reload();
-    } catch (e) {
-      console.error('Import failed:', e);
-      alert('インポートに失敗しました。ファイル形式が正しくない可能性があります。');
-    }
-    e.target.value = '';
+    showConfirm({
+      title: '設定のインポート',
+      message: '設定をインポートしますか？選択された項目の既存データは上書きされます。',
+      confirmText: 'インポート',
+      isDestructive: true,
+      onConfirm: runImport,
+    });
   };
 
   return (
@@ -432,18 +427,24 @@ export function GeneralSettings() {
                 const selectedCount = Object.values(clearOptions).filter(Boolean).length;
                 if (selectedCount === 0) return;
 
-                if (!confirm('選択したデータを削除しますか？\nこの操作は取り消せません。')) {
-                  return;
-                }
+                const runClear = async () => {
+                  try {
+                    await clearPartialData(clearOptions);
+                    showAlert('データの削除が完了しました。アプリを再読み込みします。', '完了');
+                    setTimeout(() => window.location.reload(), 1500);
+                  } catch (e) {
+                    console.error('Failed to clear data:', e);
+                    showAlert('データの削除に失敗しました。', 'エラー');
+                  }
+                };
 
-                try {
-                  await clearPartialData(clearOptions);
-                  alert('データの削除が完了しました。アプリを再読み込みします。');
-                  window.location.reload();
-                } catch (e) {
-                  console.error('Failed to clear data:', e);
-                  alert('データの削除に失敗しました。');
-                }
+                showConfirm({
+                  title: 'データの削除',
+                  message: '選択したデータを削除しますか？\nこの操作は取り消せません。',
+                  confirmText: '削除',
+                  isDestructive: true,
+                  onConfirm: runClear,
+                });
               }}
               className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
@@ -453,6 +454,8 @@ export function GeneralSettings() {
           </div>
         </div>
       </section>
+
+      <ConfirmDialog {...confirmProps} />
     </div>
   );
 }

@@ -26,6 +26,7 @@ import {
   updateProvidersOrder,
   upsertProvider,
 } from '../../lib/services/ProviderService';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
 import { Modal } from '../common/Modal';
 import { Switch } from '../common/Switch';
@@ -53,6 +54,38 @@ export function ProviderSettings() {
   const [editingProvider, setEditingProvider] = useState<
     (Omit<Provider, 'createdAt' | 'updatedAt'> & { id?: number }) | null
   >(null);
+
+  // Confirm/Alert State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    showCancel?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const showConfirm = (opts: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }) => {
+    setConfirmState({
+      isOpen: true,
+      showCancel: true,
+      ...opts,
+    });
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -166,7 +199,17 @@ export function ProviderSettings() {
                   key={p.id}
                   provider={p}
                   onEdit={() => setEditingProvider(p)}
-                  onDelete={() => p.id && deleteMutation.mutate(p.id)}
+                  onDelete={() => {
+                    if (p.id) {
+                      showConfirm({
+                        title: 'プロバイダーの削除',
+                        message: `${p.name} を削除してもよろしいですか？`,
+                        confirmText: '削除',
+                        isDestructive: true,
+                        onConfirm: () => deleteMutation.mutate(p.id as number),
+                      });
+                    }
+                  }}
                   onToggleActive={(isActive) =>
                     p.id && toggleActiveMutation.mutate({ id: p.id, isActive })
                   }
@@ -352,6 +395,18 @@ export function ProviderSettings() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        onClose={() => setConfirmState((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        isDestructive={confirmState.isDestructive}
+        showCancel={confirmState.showCancel}
+      />
     </div>
   );
 }
@@ -437,9 +492,7 @@ function SortableProviderItem({
           <button
             type="button"
             onClick={() => {
-              if (confirm(`${provider.name} を削除してもよろしいですか？`)) {
-                onDelete();
-              }
+              onDelete();
             }}
             className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
           >

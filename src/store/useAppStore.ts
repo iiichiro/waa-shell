@@ -32,6 +32,7 @@ export const useAppStore = create<AppState>()(
 
         // ToolsSlice
         enabledTools: state.enabledTools,
+        enabledBuiltInTools: state.enabledBuiltInTools,
       }),
     },
   ),

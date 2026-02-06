@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { db, type ManualModel, type Provider, type ProviderType } from '../../lib/db';
 import { listModels, type ModelInfo } from '../../lib/services/ModelService';
 import { listProviders } from '../../lib/services/ProviderService';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState } from '../common/EmptyState';
 import { Modal } from '../common/Modal';
 
@@ -60,7 +61,56 @@ export function ModelSettings() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('enabled');
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
+
   const [isManualModalOpen, setManualModalOpen] = useState(false);
+
+  // Confirm/Alert State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    showCancel?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const closeConfirm = () => {
+    setConfirmState((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  const showConfirm = (opts: {
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }) => {
+    setConfirmState({
+      isOpen: true,
+      showCancel: true,
+      ...opts,
+    });
+  };
+
+  const showAlert = (message: string) => {
+    setConfirmState({
+      isOpen: true,
+      title: '確認',
+      message,
+      confirmText: 'OK',
+      showCancel: false,
+      isDestructive: false,
+      onConfirm: () => {},
+    });
+  };
 
   // 編集用 (ManualModel)
   // 新規作成時は null, 編集時は ManualModel オブジェクト
@@ -258,12 +308,16 @@ export function ModelSettings() {
   const deleteManualModelMutation = useMutation({
     mutationFn: async (model: ModelInfo) => {
       // UUIDで検索して削除
+      console.log('Attempting to delete manual model:', model);
       const manual = await db.manualModels.where('uuid').equals(model.id).first();
+      console.log('Found manual model record:', manual);
+
       // Manualモデルが見つからない場合でも、Configの削除は試みるべきか？
       // -> APIモデルのConfigのみ削除するケースもありうるが、ここではManualModelの削除アクション。
 
       if (manual?.id) {
         await db.manualModels.delete(manual.id);
+        console.log('Deleted manual model with primary key:', manual.id);
 
         // 関連するModelConfigも削除
         try {
@@ -306,14 +360,9 @@ export function ModelSettings() {
         m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.id.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const matchFilter =
-        statusFilter === 'all'
-          ? true
-          : statusFilter === 'enabled'
-            ? m.isEnabled
-            : statusFilter === 'disabled'
-              ? !m.isEnabled
-              : true;
+      let matchFilter = true;
+      if (statusFilter === 'enabled') matchFilter = m.isEnabled;
+      else if (statusFilter === 'disabled') matchFilter = !m.isEnabled;
 
       return matchSearch && matchFilter;
     });
@@ -346,7 +395,7 @@ export function ModelSettings() {
       !editingManualModel?.modelId ||
       !editingManualModel?.name
     ) {
-      alert('必須項目（Provider ID, Model ID, Name）を入力してください');
+      showAlert('必須項目（Provider ID, Model ID, Name）を入力してください');
       return;
     }
     // JSON Validation
@@ -354,7 +403,7 @@ export function ModelSettings() {
       try {
         JSON.parse(editingManualModel.extraParams as unknown as string);
       } catch (_e) {
-        alert('Extra Params の JSON 形式が不正です');
+        showAlert('Extra Params の JSON 形式が不正です');
         return;
       }
     }
@@ -595,7 +644,14 @@ export function ModelSettings() {
                         const message = model.isApiOverride
                           ? 'カスタマイズ設定を削除し、デフォルトに戻しますか？'
                           : 'このモデルを削除しますか？';
-                        if (confirm(message)) deleteManualModelMutation.mutate(model);
+
+                        showConfirm({
+                          title: model.isApiOverride ? 'デフォルトに戻す' : 'モデルの削除',
+                          message,
+                          confirmText: model.isApiOverride ? 'リセット' : '削除',
+                          isDestructive: true,
+                          onConfirm: () => deleteManualModelMutation.mutate(model),
+                        });
                       }}
                     />
                   ))}
@@ -941,6 +997,18 @@ export function ModelSettings() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        onClose={closeConfirm}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        isDestructive={confirmState.isDestructive}
+        showCancel={confirmState.showCancel}
+      />
     </div>
   );
 }

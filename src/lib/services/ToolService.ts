@@ -61,27 +61,11 @@ export async function getToolDefinitions(): Promise<OpenAI.Chat.ChatCompletionTo
   // 組み込みツールの追加
   const builtInToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [];
   if (enabledBuiltInTools.web_search) {
-    // web_search はプロバイダーごとに形式が異なるため、ここではマーカーとして共通の形式で入れるか、
-    // プロバイダー側でこの名前を見て置換するようにする。
-    // ここでは OpenAI SDK の型に合わせつつ、名前を 'web_search' とする。
+    // LiteLLM / OpenAI の最新仕様に合わせて type: 'web_search' を使用する
+    // OpenAI SDKの型定義に含まれていない可能性があるため、型アサーションを使用
     builtInToolDefinitions.push({
-      type: 'function',
-      function: {
-        name: 'web_search',
-        description: 'Web 検索を実行して最新の情報を取得します。',
-        parameters: {
-          type: 'object',
-          properties: {
-            queries: {
-              type: 'array',
-              items: { type: 'string' },
-              description: '検索クエリのリスト',
-            },
-          },
-          required: ['queries'],
-        },
-      },
-    });
+      type: 'web_search',
+    } as unknown as OpenAI.Chat.ChatCompletionTool);
   }
 
   // MCP サーバから取得したツールを追加

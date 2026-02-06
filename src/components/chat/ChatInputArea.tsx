@@ -33,6 +33,36 @@ export function ChatInputArea({
   isModelEnabled = true,
 }: ChatInputAreaProps) {
   const isMultiLine = inputText.includes('\n');
+  const isSendDisabled =
+    (!inputText.trim() && selectedFiles.length === 0) || isPending || !isModelEnabled;
+
+  const sendButtonClass = `m-1.5 p-1.5 transition-all rounded-md shrink-0 ${
+    isSendDisabled
+      ? 'bg-muted text-muted-foreground cursor-not-allowed'
+      : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm hover:shadow-primary/20 active:scale-95'
+  }`;
+
+  const AttachButton = () => (
+    <button
+      type="button"
+      onClick={() => fileInputRef.current?.click()}
+      className="p-2 text-muted-foreground transition-all hover:text-foreground shrink-0 cursor-pointer"
+      title="ファイルを添付"
+    >
+      <Plus className="w-5 h-5" />
+    </button>
+  );
+
+  const SendButton = () => (
+    <button
+      type="button"
+      onClick={handleSend}
+      disabled={isSendDisabled}
+      className={sendButtonClass}
+    >
+      <Send className="w-4 h-4" />
+    </button>
+  );
 
   return (
     <div
@@ -74,19 +104,10 @@ export function ChatInputArea({
         </div>
       )}
 
-      {/* 2. 入力・ボタンエリア (単一の textarea を使い回すことでスムーズにリサイズ) */}
+      {/* 2. 入力・ボタンエリア */}
       <div className={`flex w-full ${isMultiLine ? 'flex-col' : 'items-end'}`}>
         <div className={`flex flex-1 min-w-0 ${isMultiLine ? 'w-full' : 'items-end'}`}>
-          {!isMultiLine && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-muted-foreground transition-all hover:text-foreground shrink-0 cursor-pointer"
-              title="ファイルを添付"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-          )}
+          {!isMultiLine && <AttachButton />}
 
           <textarea
             ref={textareaRef}
@@ -101,49 +122,13 @@ export function ChatInputArea({
             autoFocus
           />
 
-          {!isMultiLine && (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={
-                (!inputText.trim() && selectedFiles.length === 0) || isPending || !isModelEnabled
-              }
-              className={`m-1.5 p-1.5 transition-all rounded-md shrink-0 ${
-                (!inputText.trim() && selectedFiles.length === 0) || isPending || !isModelEnabled
-                  ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm hover:shadow-primary/20 active:scale-95'
-              }`}
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          )}
+          {!isMultiLine && <SendButton />}
         </div>
 
         {isMultiLine && (
           <div className="flex items-center justify-between shrink-0 px-1 pb-1">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-muted-foreground transition-all hover:text-foreground shrink-0 cursor-pointer"
-              title="ファイルを添付"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={
-                (!inputText.trim() && selectedFiles.length === 0) || isPending || !isModelEnabled
-              }
-              className={`m-1.5 p-1.5 transition-all rounded-md shrink-0 ${
-                (!inputText.trim() && selectedFiles.length === 0) || isPending || !isModelEnabled
-                  ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm hover:shadow-primary/20 active:scale-95'
-              }`}
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            <AttachButton />
+            <SendButton />
           </div>
         )}
       </div>

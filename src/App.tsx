@@ -19,6 +19,7 @@ import { useChatThread } from './hooks/useChatThread';
 import { useConfirm } from './hooks/useConfirm';
 import { db, type Message, type Provider, type SlashCommand, type ThreadSettings } from './lib/db';
 import { getMessageBranchInfo } from './lib/db/threads';
+import { summarizeThread } from './lib/services/ChatService';
 import { listModels, type ModelInfo } from './lib/services/ModelService';
 import { useAppStore } from './store/useAppStore';
 
@@ -41,6 +42,9 @@ export default function App() {
     autoGenerateTitle,
     titleGenerationProvider,
     titleGenerationModel,
+    enableSummarizeAndNewChat,
+    summarizeProvider,
+    summarizeModel,
     enabledTools,
     setToolEnabled,
   } = useAppStore();
@@ -56,6 +60,8 @@ export default function App() {
   const [showSuggest, setShowSuggest] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const [selectedCommand, setSelectedCommand] = useState<SlashCommand | null>(null);
+
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   const handleCopy = useCallback((content: string) => {
     navigator.clipboard.writeText(content).then(() => {});
@@ -213,6 +219,38 @@ export default function App() {
     setThreadSettingsOpen(false);
   };
 
+  const handleSummarizeAndNewChat = useCallback(async () => {
+    if (!activeThreadId || isSummarizing) return;
+
+    setIsSummarizing(true);
+    try {
+      // 設定された要約用モデルがあればそれを使用、なければ現在のモデルを使用
+      const pId = summarizeProvider || selectedProviderId;
+      const mId = summarizeModel || selectedModelId;
+
+      const summary = await summarizeThread(activeThreadId, pId, mId);
+
+      if (summary) {
+        handleNewChat();
+        setInputText(summary);
+      }
+    } catch (error) {
+      console.error('Summarization failed:', error);
+      // 必要があればユーザーにエラー通知を表示するなどの処理を追加
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, [
+    activeThreadId,
+    isSummarizing,
+    summarizeProvider,
+    summarizeModel,
+    selectedProviderId,
+    selectedModelId,
+    handleNewChat,
+    setInputText,
+  ]);
+
   return (
     <div
       className={`flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground relative font-sans ${isLauncher ? 'rounded-xl border shadow-2xl' : ''}`}
@@ -229,6 +267,9 @@ export default function App() {
           onOpenThreadSettings={() => setThreadSettingsOpen(true)}
           onOpenFileExplorer={(tid) => setFileExplorerOpen(true, tid)}
           onCloseLauncher={handleWindowClose}
+          onSummarizeAndNewChat={handleSummarizeAndNewChat}
+          isSummarizing={isSummarizing}
+          enableSummarizeAndNewChat={enableSummarizeAndNewChat}
           models={models}
           providers={providers}
           selectedModelId={selectedModelId}

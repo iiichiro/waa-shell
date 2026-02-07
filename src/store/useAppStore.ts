@@ -26,6 +26,9 @@ export const useAppStore = create<AppState>()(
         autoGenerateTitle: state.autoGenerateTitle,
         titleGenerationProvider: state.titleGenerationProvider,
         titleGenerationModel: state.titleGenerationModel,
+        enableSummarizeAndNewChat: state.enableSummarizeAndNewChat,
+        summarizeProvider: state.summarizeProvider,
+        summarizeModel: state.summarizeModel,
 
         // UISlice
         isSidebarOpen: state.isSidebarOpen,

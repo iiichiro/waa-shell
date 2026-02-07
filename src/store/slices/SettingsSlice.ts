@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import {
   DEFAULT_AUTO_GENERATE_TITLE,
+  DEFAULT_ENABLE_SUMMARIZE_AND_NEW_CHAT,
   DEFAULT_SEND_SHORTCUT,
   DEFAULT_THEME,
 } from '../../lib/constants/ConfigConstants';
@@ -16,6 +17,12 @@ export interface SettingsSlice {
   setTitleGenerationProvider: (providerId: string) => void;
   titleGenerationModel: string;
   setTitleGenerationModel: (modelId: string) => void;
+  enableSummarizeAndNewChat: boolean;
+  setEnableSummarizeAndNewChat: (enabled: boolean) => void;
+  summarizeProvider: string;
+  setSummarizeProvider: (providerId: string) => void;
+  summarizeModel: string;
+  setSummarizeModel: (modelId: string) => void;
 }
 
 export const createSettingsSlice: StateCreator<SettingsSlice, [], [], SettingsSlice> = (set) => ({
@@ -29,4 +36,10 @@ export const createSettingsSlice: StateCreator<SettingsSlice, [], [], SettingsSl
   setTitleGenerationProvider: (providerId) => set({ titleGenerationProvider: providerId }),
   titleGenerationModel: '',
   setTitleGenerationModel: (modelId) => set({ titleGenerationModel: modelId }),
+  enableSummarizeAndNewChat: DEFAULT_ENABLE_SUMMARIZE_AND_NEW_CHAT,
+  setEnableSummarizeAndNewChat: (enabled) => set({ enableSummarizeAndNewChat: enabled }),
+  summarizeProvider: '',
+  setSummarizeProvider: (providerId) => set({ summarizeProvider: providerId }),
+  summarizeModel: '',
+  setSummarizeModel: (modelId) => set({ summarizeModel: modelId }),
 });

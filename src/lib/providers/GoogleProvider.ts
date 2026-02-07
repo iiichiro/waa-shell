@@ -1,6 +1,7 @@
 import { GoogleGenAI, type Tool } from '@google/genai';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
+import { withAiProviderRetry } from '../utils/retry';
 import { AbstractProvider } from './AbstractProvider';
 import type { ChatOptions } from './BaseProvider';
 
@@ -89,93 +90,109 @@ export class GoogleProvider extends AbstractProvider {
     };
 
     if (options.stream) {
-      const responseStream = await this.client.models.generateContentStream({
-        model: options.model,
-        contents,
-        config: generationConfig,
-      });
+      const responseStream = await withAiProviderRetry(
+        () =>
+          this.client.models.generateContentStream({
+            model: options.model,
+            contents,
+            config: generationConfig,
+          }),
+        options.signal,
+      );
 
       return (async function* () {
         let currentToolIndex = -1;
-        for await (const chunk of responseStream) {
-          const candidate = chunk.candidates?.[0];
-          if (!candidate?.content?.parts) continue;
+        try {
+          for await (const chunk of responseStream) {
+            if (options.signal?.aborted) break;
+            const candidate = chunk.candidates?.[0];
+            if (!candidate?.content?.parts) continue;
 
-          for (const part of candidate.content.parts) {
-            if (part.text) {
-              yield {
-                id: 'gemini-stream',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: part.text },
-                    finish_reason: null,
-                  },
-                ],
-                object: 'chat.completion.chunk',
-              } as ChatCompletionChunk;
-            }
-
-            if (part.functionCall) {
-              currentToolIndex++;
-              yield {
-                id: 'gemini-stream',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: {
-                      tool_calls: [
-                        {
-                          index: currentToolIndex,
-                          id: `call_${Math.random().toString(36).substring(2, 9)}`,
-                          type: 'function',
-                          function: {
-                            name: part.functionCall.name,
-                            arguments: JSON.stringify(part.functionCall.args),
-                          },
-                        },
-                      ],
+            for (const part of candidate.content.parts) {
+              if (part.text) {
+                yield {
+                  id: 'gemini-stream',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: { content: part.text },
+                      finish_reason: null,
                     },
-                    finish_reason: null,
+                  ],
+                  object: 'chat.completion.chunk',
+                } as ChatCompletionChunk;
+              }
+
+              if (part.functionCall) {
+                currentToolIndex++;
+                yield {
+                  id: 'gemini-stream',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: currentToolIndex,
+                            id: `call_${Math.random().toString(36).substring(2, 9)}`,
+                            type: 'function',
+                            function: {
+                              name: part.functionCall.name,
+                              arguments: JSON.stringify(part.functionCall.args),
+                            },
+                          },
+                        ],
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                  object: 'chat.completion.chunk',
+                } as ChatCompletionChunk;
+              }
+            }
+
+            if (candidate.finishReason) {
+              yield {
+                id: 'gemini-stream',
+                created: Date.now(),
+                model: options.model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {},
+                    finish_reason:
+                      candidate.finishReason === 'STOP'
+                        ? 'stop'
+                        : candidate.finishReason === 'MAX_TOKENS'
+                          ? 'length'
+                          : 'stop',
                   },
                 ],
                 object: 'chat.completion.chunk',
               } as ChatCompletionChunk;
             }
           }
-
-          if (candidate.finishReason) {
-            yield {
-              id: 'gemini-stream',
-              created: Date.now(),
-              model: options.model,
-              choices: [
-                {
-                  index: 0,
-                  delta: {},
-                  finish_reason:
-                    candidate.finishReason === 'STOP'
-                      ? 'stop'
-                      : candidate.finishReason === 'MAX_TOKENS'
-                        ? 'length'
-                        : 'stop',
-                },
-              ],
-              object: 'chat.completion.chunk',
-            } as ChatCompletionChunk;
+        } catch (error) {
+          if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            return;
           }
+          throw error;
         }
       })();
     } else {
-      const response = await this.client.models.generateContent({
-        model: options.model,
-        contents,
-        config: generationConfig,
-      });
+      const response = await withAiProviderRetry(
+        () =>
+          this.client.models.generateContent({
+            model: options.model,
+            contents,
+            config: generationConfig,
+          }),
+        options.signal,
+      );
 
       const candidate = response.candidates?.[0];
       const parts = candidate?.content?.parts || [];

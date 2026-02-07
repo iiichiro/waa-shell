@@ -87,7 +87,7 @@ export abstract class AbstractProvider implements BaseProvider {
           (!DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type) &&
             DEFAULT_SUPPORTS_TOOLS),
         supportsImages: config?.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
-        protocol: config?.protocol || DEFAULT_PROTOCOL,
+        protocol: config?.protocol || this.provider.defaultProtocol || DEFAULT_PROTOCOL,
       });
     });
 
@@ -122,7 +122,8 @@ export abstract class AbstractProvider implements BaseProvider {
           (!DEFAULT_DISABLED_SUPPORTS_TOOLS_PROVIDERS.includes(this.provider.type) &&
             DEFAULT_SUPPORTS_TOOLS),
         supportsImages: config?.supportsImages ?? m.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
-        protocol: config?.protocol || m.protocol || DEFAULT_PROTOCOL,
+        protocol:
+          config?.protocol || m.protocol || this.provider.defaultProtocol || DEFAULT_PROTOCOL,
       });
     });
 

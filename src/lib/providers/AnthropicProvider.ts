@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type OpenAI from 'openai';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
+import { withAiProviderRetry } from '../utils/retry';
 import { AbstractProvider } from './AbstractProvider';
 import type { ChatOptions } from './BaseProvider';
 
@@ -119,120 +120,142 @@ export class AnthropicProvider extends AbstractProvider {
       .filter((t) => t !== null);
 
     if (options.stream) {
-      const stream = await this.client.messages.create({
-        ...options.extraParams,
-        model: options.model,
-        max_tokens: options.max_tokens || 4096 * 1000,
-        system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
-        messages,
-        tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
-        stream: true,
-      });
+      const stream = await withAiProviderRetry(
+        () =>
+          this.client.messages.create(
+            {
+              ...options.extraParams,
+              model: options.model,
+              max_tokens: options.max_tokens || 4096 * 1000,
+              system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
+              messages,
+              tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
+              stream: true,
+            },
+            { signal: options.signal },
+          ),
+        options.signal,
+      );
 
       return (async function* () {
         let currentToolIndex = -1;
-        for await (const chunk of stream) {
-          if (chunk.type === 'message_start') continue;
-          if (chunk.type === 'message_delta') {
-            if (chunk.delta.stop_reason) {
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: {},
-                    finish_reason: chunk.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
-                  },
-                ],
-              } as ChatCompletionChunk;
+        try {
+          for await (const chunk of stream) {
+            if (options.signal?.aborted) break;
+            if (chunk.type === 'message_start') continue;
+            if (chunk.type === 'message_delta') {
+              if (chunk.delta.stop_reason) {
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {},
+                      finish_reason: chunk.delta.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
+                    },
+                  ],
+                } as ChatCompletionChunk;
+              }
+              continue;
             }
-            continue;
-          }
 
-          if (chunk.type === 'content_block_start') {
-            if (chunk.content_block.type === 'tool_use') {
-              currentToolIndex++;
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: {
-                      tool_calls: [
-                        {
-                          index: currentToolIndex,
-                          id: chunk.content_block.id,
-                          type: 'function',
-                          function: {
-                            name: chunk.content_block.name,
-                            arguments: '',
+            if (chunk.type === 'content_block_start') {
+              if (chunk.content_block.type === 'tool_use') {
+                currentToolIndex++;
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: currentToolIndex,
+                            id: chunk.content_block.id,
+                            type: 'function',
+                            function: {
+                              name: chunk.content_block.name,
+                              arguments: '',
+                            },
                           },
-                        },
-                      ],
+                        ],
+                      },
+                      finish_reason: null,
                     },
-                    finish_reason: null,
-                  },
-                ],
-              } as ChatCompletionChunk;
-            }
-          } else if (chunk.type === 'content_block_delta') {
-            if (chunk.delta.type === 'text_delta') {
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: chunk.delta.text },
-                    finish_reason: null,
-                  },
-                ],
-              } as ChatCompletionChunk;
-            } else if (chunk.delta.type === 'input_json_delta') {
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Date.now(),
-                model: options.model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: {
-                      tool_calls: [
-                        {
-                          index: currentToolIndex,
-                          function: {
-                            arguments: chunk.delta.partial_json,
+                  ],
+                } as ChatCompletionChunk;
+              }
+            } else if (chunk.type === 'content_block_delta') {
+              if (chunk.delta.type === 'text_delta') {
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: { content: chunk.delta.text },
+                      finish_reason: null,
+                    },
+                  ],
+                } as ChatCompletionChunk;
+              } else if (chunk.delta.type === 'input_json_delta') {
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Date.now(),
+                  model: options.model,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: currentToolIndex,
+                            function: {
+                              arguments: chunk.delta.partial_json,
+                            },
                           },
-                        },
-                      ],
+                        ],
+                      },
+                      finish_reason: null,
                     },
-                    finish_reason: null,
-                  },
-                ],
-              } as ChatCompletionChunk;
+                  ],
+                } as ChatCompletionChunk;
+              }
             }
           }
+        } catch (error) {
+          if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            return;
+          }
+          throw error;
         }
       })();
     } else {
-      const response = await this.client.messages.create({
-        ...options.extraParams,
-        model: options.model,
-        max_tokens: options.max_tokens || 4096 * 1000,
-        system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
-        messages,
-        tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
-        stream: false,
-      });
+      const response = await withAiProviderRetry(
+        () =>
+          this.client.messages.create(
+            {
+              ...options.extraParams,
+              model: options.model,
+              max_tokens: options.max_tokens || 4096 * 1000,
+              system: typeof systemPrompt === 'string' ? systemPrompt : undefined,
+              messages,
+              tools: anthropicTools && anthropicTools.length > 0 ? anthropicTools : undefined,
+              stream: false,
+            },
+            { signal: options.signal },
+          ),
+        options.signal,
+      );
 
       const text = response.content
         .filter((c): c is Anthropic.TextBlock => c.type === 'text')

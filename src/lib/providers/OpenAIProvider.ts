@@ -7,6 +7,7 @@ import type {
 } from 'openai/resources/responses/responses';
 import type { Stream } from 'openai/streaming';
 import type { Provider } from '../db';
+import { withAiProviderRetry } from '../utils/retry';
 import { AbstractProvider } from './AbstractProvider';
 import type { ChatOptions, ResponseOptions } from './BaseProvider';
 
@@ -103,16 +104,38 @@ export class OpenAIProvider extends AbstractProvider {
     });
 
     if (options.stream) {
-      return this.client.chat.completions.create(
-        { ...requestBody, stream: true } as OpenAI.Chat.ChatCompletionCreateParams,
-        { signal },
-      ) as Promise<Stream<ChatCompletionChunk>>;
+      const stream = await withAiProviderRetry(
+        () =>
+          this.client.chat.completions.create(
+            { ...requestBody, stream: true } as OpenAI.Chat.ChatCompletionCreateParams,
+            { signal },
+          ) as Promise<Stream<ChatCompletionChunk>>,
+        signal,
+      );
+
+      return (async function* () {
+        try {
+          for await (const chunk of stream) {
+            if (signal?.aborted) break;
+            yield chunk;
+          }
+        } catch (error) {
+          if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            return;
+          }
+          throw error;
+        }
+      })();
     }
 
-    return this.client.chat.completions.create(
-      { ...requestBody, stream: false } as OpenAI.Chat.ChatCompletionCreateParams,
-      { signal },
-    ) as Promise<ChatCompletion>;
+    return withAiProviderRetry(
+      () =>
+        this.client.chat.completions.create(
+          { ...requestBody, stream: false } as OpenAI.Chat.ChatCompletionCreateParams,
+          { signal },
+        ) as Promise<ChatCompletion>,
+      signal,
+    );
   }
 
   async createResponse(
@@ -146,14 +169,35 @@ export class OpenAIProvider extends AbstractProvider {
     });
 
     if (options.stream) {
-      return this.client.responses.create(
-        { ...requestBody, stream: true } as ResponseCreateParams,
-        { signal },
-      ) as Promise<Stream<ResponseStreamEvent>>;
+      const stream = await withAiProviderRetry(
+        () =>
+          this.client.responses.create({ ...requestBody, stream: true } as ResponseCreateParams, {
+            signal,
+          }) as Promise<Stream<ResponseStreamEvent>>,
+        signal,
+      );
+
+      return (async function* () {
+        try {
+          for await (const event of stream) {
+            if (signal?.aborted) break;
+            yield event;
+          }
+        } catch (error) {
+          if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            return;
+          }
+          throw error;
+        }
+      })();
     }
 
-    return this.client.responses.create({ ...requestBody, stream: false } as ResponseCreateParams, {
+    return withAiProviderRetry(
+      () =>
+        this.client.responses.create({ ...requestBody, stream: false } as ResponseCreateParams, {
+          signal,
+        }) as Promise<Response>,
       signal,
-    }) as Promise<Response>;
+    );
   }
 }

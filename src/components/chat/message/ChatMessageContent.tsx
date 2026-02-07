@@ -136,6 +136,8 @@ export function ChatMessageContent({
                       </div>
                       <McpAppHost
                         mcpAppUi={message.mcpAppUi}
+                        threadId={message.threadId}
+                        modelId={message.model || ''}
                         onError={(error) => console.error('MCP App error:', error)}
                       />
                     </div>

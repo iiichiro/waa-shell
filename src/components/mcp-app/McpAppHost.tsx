@@ -4,6 +4,8 @@ import { fetchMcpAppResource } from '../../lib/services/McpAppResourceService';
 
 interface McpAppHostProps {
   mcpAppUi: McpAppUiData;
+  threadId: number;
+  modelId: string;
   onError?: (error: string) => void;
 }
 
@@ -15,8 +17,9 @@ interface McpAppHostProps {
  * 2. sandboxed iframeの作成とレンダリング
  * 3. App BridgeプロトコルによるpostMessage通信
  * 4. ツール呼び出しの転送と結果の返却
+ * 5. 実行コンテキスト（threadId, modelId）の管理
  */
-export function McpAppHost({ mcpAppUi, onError }: McpAppHostProps) {
+export function McpAppHost({ mcpAppUi, threadId, modelId, onError }: McpAppHostProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
@@ -131,7 +134,7 @@ export function McpAppHost({ mcpAppUi, onError }: McpAppHostProps) {
         // JSON-RPC形式のメッセージを確認
         if (data.jsonrpc !== '2.0') return;
 
-        handleAppBridgeMessage(data, iframe);
+        handleAppBridgeMessage(data, iframe, threadId, modelId);
       } catch (err) {
         console.error('Error handling App Bridge message:', err);
       }
@@ -151,7 +154,7 @@ export function McpAppHost({ mcpAppUi, onError }: McpAppHostProps) {
       window.removeEventListener('message', handleMessage);
       iframe.removeEventListener('load', handleLoad);
     };
-  }, [htmlContent]);
+  }, [htmlContent, threadId, modelId]);
 
   if (isLoading) {
     return (
@@ -208,28 +211,55 @@ export function McpAppHost({ mcpAppUi, onError }: McpAppHostProps) {
 /**
  * App Bridgeメッセージを処理する
  */
-// biome-ignore lint/suspicious/noExplicitAny: App Bridge message structure varies
-function handleAppBridgeMessage(data: any, iframe: HTMLIFrameElement) {
-  const { method, id, params } = data;
+function handleAppBridgeMessage(
+  data: unknown,
+  iframe: HTMLIFrameElement,
+  threadId: number,
+  modelId: string,
+) {
+  // JSON-RPC形式のメッセージであることを確認
+  if (typeof data !== 'object' || data === null || !('jsonrpc' in data) || data.jsonrpc !== '2.0') {
+    console.warn('Received non-JSON-RPC 2.0 message:', data);
+    return;
+  }
+
+  // リクエストまたは通知メッセージであることを確認
+  if (!('method' in data) || typeof data.method !== 'string') {
+    console.warn('Received JSON-RPC 2.0 message without method:', data);
+    return;
+  }
+
+  const method = data.method;
+  const id =
+    'id' in data && (typeof data.id === 'string' || typeof data.id === 'number')
+      ? data.id
+      : undefined;
+  const params = 'params' in data ? data.params : undefined;
 
   switch (method) {
     case 'ui/initialize':
       // 初期化リクエストに応答
-      sendResponse(iframe, id, {
-        protocolVersion: '2025-11-25',
-        capabilities: {
-          tools: {},
-        },
-        serverInfo: {
-          name: 'waa-shell-mcp-host',
-          version: '1.0.0',
-        },
-      });
+      if (id !== undefined) {
+        sendResponse(iframe, id, {
+          protocolVersion: '2025-11-25',
+          capabilities: {
+            tools: {},
+          },
+          serverInfo: {
+            name: 'waa-shell-mcp-host',
+            version: '1.0.0',
+          },
+        });
+      }
       break;
 
     case 'tools/call':
       // ツール呼び出しリクエストを処理
-      handleToolCall(iframe, id, params);
+      if (id !== undefined) {
+        handleToolCall(iframe, id, params, threadId, modelId);
+      } else {
+        console.warn('Received tools/call without id, treating as notification:', data);
+      }
       break;
 
     case 'ui/updateContext':
@@ -244,20 +274,44 @@ function handleAppBridgeMessage(data: any, iframe: HTMLIFrameElement) {
 
     default:
       console.warn('Unknown App Bridge method:', method);
+      if (id !== undefined) {
+        sendErrorResponse(iframe, id, `Unknown method: ${method}`);
+      }
   }
 }
 
 /**
  * ツール呼び出しを処理する
  */
-// biome-ignore lint/suspicious/noExplicitAny: Tool call params structure varies
-async function handleToolCall(iframe: HTMLIFrameElement, id: string | number, params: any) {
+async function handleToolCall(
+  iframe: HTMLIFrameElement,
+  id: string | number,
+  params: unknown,
+  threadId: number,
+  modelId: string,
+) {
   try {
+    // paramsが期待される形式であることを確認
+    if (
+      typeof params !== 'object' ||
+      params === null ||
+      !('name' in params) ||
+      typeof params.name !== 'string' ||
+      !('arguments' in params) ||
+      typeof params.arguments !== 'object' ||
+      params.arguments === null
+    ) {
+      throw new Error('Invalid params for tools/call');
+    }
+
     // ToolServiceを使用してツールを実行
     const { executeTool } = await import('../../lib/services/ToolService');
-    const { name, arguments: args } = params;
+    const { name, arguments: args } = params as {
+      name: string;
+      arguments: Record<string, unknown>;
+    };
 
-    const result = await executeTool(name, args);
+    const result = await executeTool(name, args, { threadId, modelId });
 
     // 結果を返却
     sendResponse(iframe, id, {

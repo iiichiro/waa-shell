@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { Database, Download, Keyboard, MousePointer2, Trash2, Upload, Wand2 } from 'lucide-react';
+import {
+  Database,
+  Download,
+  Keyboard,
+  MousePointer2,
+  Sparkles,
+  Trash2,
+  Upload,
+  Wand2,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { db } from '../../lib/db';
@@ -27,6 +36,12 @@ export function GeneralSettings() {
     setTitleGenerationProvider,
     titleGenerationModel,
     setTitleGenerationModel,
+    enableSummarizeAndNewChat,
+    setEnableSummarizeAndNewChat,
+    summarizeProvider,
+    setSummarizeProvider,
+    summarizeModel,
+    setSummarizeModel,
   } = useAppStore();
 
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
@@ -69,6 +84,11 @@ export function GeneralSettings() {
   const availableModels = models.filter((m) => {
     if (!titleGenerationProvider) return true;
     return m.providerId === titleGenerationProvider;
+  });
+
+  const summarizeAvailableModels = models.filter((m) => {
+    if (!summarizeProvider) return true;
+    return m.providerId === summarizeProvider;
   });
 
   const handleExport = async () => {
@@ -295,6 +315,83 @@ export function GeneralSettings() {
                 </select>
                 <p className="text-xs text-muted-foreground">
                   ※軽量なモデル（例: gpt-3.5-turbo, haikuなど）の使用を推奨します
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <span>要約して新しいチャットを開始</span>
+        </h3>
+        <div className="bg-muted/30 border rounded-lg p-6 space-y-6">
+          <div className="flex items-center justify-between gap-2">
+            <div className="space-y-1">
+              <h4 className="font-medium text-foreground">機能を有効にする</h4>
+              <p className="text-sm text-muted-foreground">
+                これまでの会話内容を要約し、その要約を初期入力として新しいチャットを開始するボタンをヘッダーに表示します。
+              </p>
+            </div>
+            <div className="flex items-center">
+              <Switch checked={enableSummarizeAndNewChat} onChange={setEnableSummarizeAndNewChat} />
+            </div>
+          </div>
+
+          {enableSummarizeAndNewChat && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+              <div className="space-y-2">
+                <label
+                  htmlFor="summarize-provider-select"
+                  className="text-sm font-medium text-foreground"
+                >
+                  使用するプロバイダー
+                </label>
+                <select
+                  id="summarize-provider-select"
+                  value={summarizeProvider}
+                  onChange={(e) => {
+                    setSummarizeProvider(e.target.value);
+                    setSummarizeModel(''); // Reset model when provider changes
+                  }}
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                >
+                  <option value="">プロバイダーを選択</option>
+                  {activeProviders.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="summarize-model-select"
+                  className="text-sm font-medium text-foreground"
+                >
+                  使用するモデル
+                </label>
+                <select
+                  id="summarize-model-select"
+                  value={summarizeModel}
+                  onChange={(e) => setSummarizeModel(e.target.value)}
+                  className="w-full bg-background border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                  disabled={!summarizeProvider}
+                >
+                  <option value="">モデルを選択</option>
+                  {summarizeAvailableModels
+                    .filter((m) => m.isEnabled)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  ※長い会話の要約にはコンテキスト窓の大きいモデルの使用を推奨します
                 </p>
               </div>
             </div>

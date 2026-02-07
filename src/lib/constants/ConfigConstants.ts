@@ -24,6 +24,9 @@ export const DEFAULT_THEME = 'system';
 /** タイトル自動生成のデフォルト有効状態 */
 export const DEFAULT_AUTO_GENERATE_TITLE = false;
 
+/** 要約・新規チャットのデフォルト有効状態 */
+export const DEFAULT_ENABLE_SUMMARIZE_AND_NEW_CHAT = false;
+
 /** プロトコルのデフォルト設定 */
 export const DEFAULT_PROTOCOL = 'chat_completion';
 

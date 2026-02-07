@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Settings,
   Settings2,
+  Sparkles,
   X,
 } from 'lucide-react';
 import type React from 'react';
@@ -25,6 +26,9 @@ interface ChatHeaderProps {
   onOpenThreadSettings: () => void;
   onOpenFileExplorer: (threadId: number) => void;
   onCloseLauncher: () => void;
+  onSummarizeAndNewChat: () => void;
+  isSummarizing?: boolean;
+  enableSummarizeAndNewChat: boolean;
 
   // Model states
   models: ModelInfo[];
@@ -62,6 +66,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onOpenThreadSettings,
   onOpenFileExplorer,
   onCloseLauncher,
+  onSummarizeAndNewChat,
+  isSummarizing,
+  enableSummarizeAndNewChat,
   models,
   providers,
   selectedModelId,
@@ -264,6 +271,21 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
       {/* 3. Action Area (Right) */}
       <div className="flex items-center shrink-0 justify-end" data-tauri-drag-region>
+        {enableSummarizeAndNewChat && (
+          <button
+            type="button"
+            onClick={onSummarizeAndNewChat}
+            disabled={!activeThreadId || isSummarizing}
+            className={`p-2 rounded-lg transition-all shrink-0 ${
+              isSummarizing
+                ? 'text-primary animate-pulse'
+                : 'text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-30 disabled:hover:bg-transparent'
+            }`}
+            title="これまでの内容を要約して新しくチャットを始める"
+          >
+            <Sparkles className={`w-5 h-5 ${isSummarizing ? 'animate-spin' : ''}`} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onNewChat}

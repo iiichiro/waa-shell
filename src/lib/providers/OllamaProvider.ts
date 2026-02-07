@@ -1,6 +1,7 @@
 import { type ChatRequest, type Message, Ollama } from 'ollama/browser';
 import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Provider } from '../db';
+import { withAiProviderRetry } from '../utils/retry';
 import { AbstractProvider } from './AbstractProvider';
 import type { ChatOptions } from './BaseProvider';
 
@@ -79,28 +80,42 @@ export class OllamaProvider extends AbstractProvider {
     });
 
     if (options.stream) {
-      const response = await this.client.chat({
-        ...options.extraParams,
-        model: options.model,
-        messages,
-        stream: true,
-        options: {
-          ...options.extraParams,
-          num_predict: options.max_tokens,
-        },
-        tools: options.tools?.filter((t) => t.type === 'function'),
-        signal: options.signal, // AbortSignal対応
-      } as unknown as ChatRequest & { stream: true });
+      const response = await withAiProviderRetry(
+        () =>
+          this.client.chat({
+            ...options.extraParams,
+            model: options.model,
+            messages,
+            stream: true,
+            options: {
+              ...options.extraParams,
+              num_predict: options.max_tokens,
+            },
+            tools: options.tools?.filter((t) => t.type === 'function'),
+            signal: options.signal, // AbortSignal対応
+          } as unknown as ChatRequest & { stream: true }),
+        options.signal,
+      );
 
       // 信号の中断をハンドル
-      const abortHandler = () => response.abort();
+      // 信号の中断をハンドル (Ollama SDKの AsyncGenerator に abort があれば呼ぶが、通常は signal 経由で止まる)
+      const abortHandler = () => {
+        if (
+          response &&
+          'abort' in response &&
+          typeof (response as { abort?: unknown }).abort === 'function'
+        ) {
+          (response as { abort: () => void }).abort();
+        }
+      };
       if (options.signal) {
-        options.signal.addEventListener('abort', abortHandler);
+        options.signal.addEventListener('abort', abortHandler, { once: true });
       }
 
       return (async function* () {
         try {
           for await (const chunk of response) {
+            if (options.signal?.aborted) break;
             yield {
               id: 'ollama-stream',
               object: 'chat.completion.chunk',
@@ -131,6 +146,11 @@ export class OllamaProvider extends AbstractProvider {
               ],
             } as ChatCompletionChunk;
           }
+        } catch (error) {
+          if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            return;
+          }
+          throw error;
         } finally {
           if (options.signal) {
             options.signal.removeEventListener('abort', abortHandler);
@@ -138,18 +158,22 @@ export class OllamaProvider extends AbstractProvider {
         }
       })();
     } else {
-      const response = await this.client.chat({
-        ...options.extraParams,
-        model: options.model,
-        messages,
-        stream: false,
-        options: {
-          ...options.extraParams,
-          num_predict: options.max_tokens,
-        },
-        tools: options.tools?.filter((t) => t.type === 'function'),
-        signal: options.signal, // AbortSignal対応
-      } as unknown as ChatRequest & { stream?: false | undefined });
+      const response = await withAiProviderRetry(
+        () =>
+          this.client.chat({
+            ...options.extraParams,
+            model: options.model,
+            messages,
+            stream: false,
+            options: {
+              ...options.extraParams,
+              num_predict: options.max_tokens,
+            },
+            tools: options.tools?.filter((t) => t.type === 'function'),
+            signal: options.signal, // AbortSignal対応
+          } as unknown as ChatRequest & { stream?: false | undefined }),
+        options.signal,
+      );
 
       return {
         id: 'ollama-completion',

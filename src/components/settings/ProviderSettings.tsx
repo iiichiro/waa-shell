@@ -366,30 +366,65 @@ export function ProviderSettings() {
             </div>
 
             {RESPONSE_API_SUPPORTED_TYPES.includes(editingProvider.type) && (
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  id="p-response-api"
-                  type="checkbox"
-                  className="w-4 h-4 rounded bg-background text-primary focus:ring-ring"
-                  checked={editingProvider.supportsResponseApi ?? false}
-                  onChange={(e) =>
-                    setEditingProvider({
-                      ...editingProvider,
-                      supportsResponseApi: e.target.checked,
-                    })
-                  }
-                />
-                <div className="flex flex-col">
-                  <label
-                    htmlFor="p-response-api"
-                    className="text-sm font-medium text-foreground cursor-pointer"
-                  >
-                    Response API (v1/responses) を使用可能
-                  </label>
-                  <span className="text-xs text-muted-foreground">
-                    POST /v1/responses エンドポイントへのリクエストが可能になります。
-                  </span>
+              <div className="space-y-4 pt-2 border-t">
+                <div className="flex items-center gap-2">
+                  <input
+                    id="p-response-api"
+                    type="checkbox"
+                    className="w-4 h-4 rounded bg-background text-primary focus:ring-ring"
+                    checked={editingProvider.supportsResponseApi ?? false}
+                    onChange={(e) =>
+                      setEditingProvider({
+                        ...editingProvider,
+                        supportsResponseApi: e.target.checked,
+                        defaultProtocol: e.target.checked
+                          ? editingProvider.defaultProtocol
+                          : 'chat_completion',
+                      })
+                    }
+                  />
+                  <div className="flex flex-col">
+                    <label
+                      htmlFor="p-response-api"
+                      className="text-sm font-medium text-foreground cursor-pointer"
+                    >
+                      Response API (v1/responses) を使用可能
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      POST /v1/responses エンドポイントへのリクエストが可能になります。
+                    </span>
+                  </div>
                 </div>
+
+                {editingProvider.supportsResponseApi && (
+                  <div className="space-y-1.5 pl-6 animate-in fade-in slide-in-from-top-1">
+                    <label
+                      htmlFor="p-default-protocol"
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      デフォルトプロトコル
+                    </label>
+                    <div className="flex flex-col gap-1.5">
+                      <select
+                        id="p-default-protocol"
+                        className="w-full max-w-[240px] bg-background border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={editingProvider.defaultProtocol || 'chat_completion'}
+                        onChange={(e) =>
+                          setEditingProvider({
+                            ...editingProvider,
+                            defaultProtocol: e.target.value as 'chat_completion' | 'response_api',
+                          })
+                        }
+                      >
+                        <option value="chat_completion">Chat Completion</option>
+                        <option value="response_api">Response API</option>
+                      </select>
+                      <p className="text-[10px] text-muted-foreground">
+                        モデル個別にプロトコルが設定されていない場合、この設定がデフォルトとして適用されます。
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

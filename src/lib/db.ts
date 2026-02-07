@@ -106,6 +106,7 @@ export interface Provider {
   requiresApiKey?: boolean; // APIキーを必須とするか
   supportsResponseApi?: boolean; // Response API (POST /v1/responses) に対応しているか
   isActive: boolean; // 現在有効かどうか
+  defaultProtocol?: 'chat_completion' | 'response_api'; // デフォルトのプロトコル
   order?: number; // 表示順序
   createdAt: Date;
   updatedAt: Date;
@@ -286,6 +287,10 @@ export class AppDatabase extends Dexie {
     // Schema update for v13: Add order to providers
     this.version(13).stores({
       providers: '++id, &name, type, isActive, order',
+    });
+    // Schema update for v14: Add defaultProtocol to providers
+    this.version(14).stores({
+      // No index changes, just version bump for new non-indexed field
     });
   }
 }

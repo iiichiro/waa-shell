@@ -114,7 +114,9 @@ export function useChatOperations({
         });
 
         queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
-        await processStreamResponse(response);
+        if (response) {
+          await processStreamResponse(response);
+        }
         queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
         queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
 

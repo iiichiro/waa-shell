@@ -117,7 +117,11 @@ export async function sendMessage(
     onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
   } = {},
-): Promise<Message | AsyncIterable<ChatCompletionChunk>> {
+): Promise<Message | AsyncIterable<ChatCompletionChunk> | undefined> {
+  // 改行コードの正規化 (\r\n -> \n)
+  const normalizedContent = content.replace(/\r\n/g, '\n');
+  content = normalizedContent;
+
   const threadSetting = await db.threadSettings.where({ threadId }).first();
   const modelId = threadSetting?.modelId || requestModelId;
   const providerId = threadSetting?.providerId;
@@ -213,11 +217,18 @@ export async function sendMessage(
     const supportsImages = currentModel
       ? currentModel.supportsImages !== false
       : DEFAULT_SUPPORTS_IMAGES;
-    const protocol = currentModel?.protocol || 'chat_completion';
+    const protocol =
+      currentModel?.protocol || specificProvider?.defaultProtocol || 'chat_completion';
 
-    if (systemPrompt) {
-      messagesForAi.push({ role: 'system', content: systemPrompt });
-    }
+    // システムプロンプトの構築
+    const hiddenPrompt = [
+      `現在日時: ${new Date().toLocaleString('ja-JP')}`,
+      '不明な場合、判断できない場合は無理に答えずに分からない旨を回答することを徹底してください。',
+      'ユーザーの指示には原則従ってください。',
+    ].join('\n');
+
+    const combinedSystemPrompt = systemPrompt ? `${hiddenPrompt}\n\n${systemPrompt}` : hiddenPrompt;
+    messagesForAi.push({ role: 'system', content: combinedSystemPrompt });
 
     for (const m of history) {
       if (m.tool_calls && m.tool_calls.length > 0) {
@@ -419,6 +430,7 @@ export async function sendMessage(
               const toolExecutionResult = await executeToolWithMetadata(
                 toolCall.function.name,
                 args,
+                { threadId, modelId },
               );
               toolResult = toolExecutionResult.content;
               mcpAppUi = toolExecutionResult.mcpAppUi;
@@ -537,7 +549,11 @@ export async function sendMessage(
           let mcpAppUi: McpAppUiData | undefined;
           try {
             const args = JSON.parse(toolCall.function.arguments);
-            const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+            const toolExecutionResult = await executeToolWithMetadata(
+              toolCall.function.name,
+              args,
+              { threadId, modelId },
+            );
             toolResult = toolExecutionResult.content;
             mcpAppUi = toolExecutionResult.mcpAppUi;
           } catch (e) {
@@ -591,6 +607,9 @@ export async function sendMessage(
       assistantMessage.id = finalId;
       return assistantMessage;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return undefined; // 中断時は何も返さず終了
+      }
       const errorMessage: Message = {
         threadId,
         role: 'assistant',
@@ -726,7 +745,10 @@ async function* handleStreamResponse(
       let mcpAppUi: McpAppUiData | undefined;
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args, {
+          threadId,
+          modelId,
+        });
         toolResult = toolExecutionResult.content;
         mcpAppUi = toolExecutionResult.mcpAppUi;
       } catch (e) {
@@ -749,13 +771,13 @@ async function* handleStreamResponse(
       stream: true, // stream=trueの場合の処理のため、true固定
       parentId: currentParentId,
     });
-    if (Symbol.asyncIterator in nextResponse) {
+    if (nextResponse && Symbol.asyncIterator in nextResponse) {
       const iterator = nextResponse as AsyncIterable<ChatCompletionChunk>;
       for await (const chunk of iterator) {
         yield chunk;
       }
     }
-  } else {
+  } else if (fullContent || fullReasoning) {
     const finalId = await db.messages.add({
       threadId,
       role: 'assistant',
@@ -859,7 +881,10 @@ async function* handleResponseStream(
       let mcpAppUi: McpAppUiData | undefined;
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args);
+        const toolExecutionResult = await executeToolWithMetadata(toolCall.function.name, args, {
+          threadId,
+          modelId,
+        });
         toolResult = toolExecutionResult.content;
         mcpAppUi = toolExecutionResult.mcpAppUi;
       } catch (e) {
@@ -883,13 +908,13 @@ async function* handleResponseStream(
       stream: true,
       parentId: currentParentId,
     });
-    if (Symbol.asyncIterator in nextResponse) {
+    if (nextResponse && Symbol.asyncIterator in nextResponse) {
       const iterator = nextResponse as AsyncIterable<ChatCompletionChunk>;
       for await (const chunk of iterator) {
         yield chunk;
       }
     }
-  } else {
+  } else if (fullContent || reasoningSummary) {
     // Save Assistant Message (No tools)
     const assistantMessage: Message = {
       threadId,
@@ -1208,5 +1233,64 @@ async function saveBase64Image(
     return fileId;
   } catch (e) {
     console.error('Failed to save assistant image:', e);
+  }
+}
+/**
+ * チャットの内容を要約する
+ */
+export async function summarizeThread(
+  threadId: number,
+  providerId: string,
+  modelId: string,
+): Promise<string> {
+  // 1. メッセージ履歴の取得
+  const messages = await getActivePathMessages(threadId);
+  // systemプロンプトを除外して、ユーザーとアシスタントのやり取りだけ抽出
+  const conversation = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+
+  if (conversation.length === 0) return '';
+
+  // 2. プロバイダー情報の取得
+  const provider = await db.providers.get(Number(providerId));
+  if (!provider) {
+    throw new Error('Provider not found');
+  }
+
+  // 3. プロンプトの構築
+  const prompt: ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content:
+        'あなたは会話の文脈を完璧に把握し、その核心を簡潔かつ正確に要約する専門家です。これまでの会話内容を要約し、次のチャットを始めるためのベースとなるテキストを作成してください。出力は要約されたテキストのみとし、余計な挨拶や説明は一切不要です。',
+    },
+    ...conversation.map(
+      (m) =>
+        ({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: m.content,
+        }) as ChatCompletionMessageParam,
+    ),
+    {
+      role: 'user',
+      content: 'これまでの内容を要約して。',
+    },
+  ];
+
+  try {
+    // 4. LLM呼び出し
+    const response = await chatCompletion({
+      model: modelId,
+      messages: prompt,
+      provider: provider,
+      stream: false,
+    });
+
+    if (response && 'choices' in response && response.choices.length > 0) {
+      return response.choices[0].message.content?.trim() || '';
+    }
+    return '';
+  } catch (error) {
+    console.error('Thread summarization failed:', error);
+    throw error;
   }
 }

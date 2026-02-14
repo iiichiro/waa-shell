@@ -64,6 +64,9 @@ export interface ModelInfo {
   supportsImages?: boolean;
   protocol?: 'chat_completion' | 'response_api';
   isApiOverride?: boolean;
+  providerType?: string;
+  supportsWebSearch?: boolean;
+  supportedOpenAiParams?: string[];
 }
 
 /**

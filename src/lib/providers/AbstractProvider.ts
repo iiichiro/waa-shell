@@ -88,6 +88,9 @@ export abstract class AbstractProvider implements BaseProvider {
             DEFAULT_SUPPORTS_TOOLS),
         supportsImages: config?.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
         protocol: config?.protocol || this.provider.defaultProtocol || DEFAULT_PROTOCOL,
+        providerType: this.provider.type,
+        supportsWebSearch: m.supports_web_search as boolean | undefined,
+        supportedOpenAiParams: m.supported_openai_params as string[] | undefined,
       });
     });
 
@@ -124,6 +127,7 @@ export abstract class AbstractProvider implements BaseProvider {
         supportsImages: config?.supportsImages ?? m.supportsImages ?? DEFAULT_SUPPORTS_IMAGES,
         protocol:
           config?.protocol || m.protocol || this.provider.defaultProtocol || DEFAULT_PROTOCOL,
+        providerType: this.provider.type,
       });
     });
 

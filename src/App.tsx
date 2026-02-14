@@ -1,18 +1,30 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatHeader } from './components/chat/ChatHeader';
 import { ChatInputArea } from './components/chat/ChatInputArea';
 import { ChatMessage } from './components/chat/ChatMessage';
 import { ScrollToBottomButton } from './components/chat/ScrollToBottomButton';
 import { ThreadSettingsModal } from './components/chat/ThreadSettingsModal';
-import { CommandManager } from './components/command/CommandManager';
 import { SlashCommandForm } from './components/command/SlashCommandForm';
 import { SlashCommandSuggest } from './components/command/SlashCommandSuggest';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
-import { FileExplorer } from './components/common/FileExplorer';
-import { Sidebar } from './components/layout/Sidebar';
-import { SettingsView } from './components/settings/SettingsView';
 import { useAppWindow } from './hooks/useAppWindow';
+
+// Lazy load heavy components
+const CommandManager = lazy(() =>
+  import('./components/command/CommandManager').then((m) => ({ default: m.CommandManager })),
+);
+const FileExplorer = lazy(() =>
+  import('./components/common/FileExplorer').then((m) => ({ default: m.FileExplorer })),
+);
+const Sidebar = lazy(() =>
+  import('./components/layout/Sidebar').then((m) => ({ default: m.Sidebar })),
+);
+const SettingsView = lazy(() =>
+  import('./components/settings/SettingsView').then((m) => ({ default: m.SettingsView })),
+);
+
 import { useChatInput } from './hooks/useChatInput';
 import { useChatOperations } from './hooks/useChatOperations';
 import { useChatThread } from './hooks/useChatThread';
@@ -125,6 +137,16 @@ export default function App() {
     isSettingsOpen
   );
 
+  // ストリーミング開始時刻を保持するためのref
+  const streamingDate = useRef(new Date());
+  const prevStreamingContentRef = useRef(streamingContent);
+  useEffect(() => {
+    if (streamingContent && !prevStreamingContentRef.current) {
+      streamingDate.current = new Date();
+    }
+    prevStreamingContentRef.current = streamingContent;
+  }, [streamingContent]);
+
   const { handleWindowClose } = useAppWindow({
     isLauncher,
     shouldExpand,
@@ -148,6 +170,17 @@ export default function App() {
       titleGenerationProvider,
       titleGenerationModel,
     });
+
+  // 仮想スクロールの設定
+  const rowVirtualizer = useVirtualizer({
+    count:
+      messages.length +
+      (sendMutation.isPending && !streamingContent ? 1 : 0) +
+      (streamingContent ? 1 : 0),
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 150, // メッセージの推定高さ
+    overscan: 5, // 描画範囲外の確保数
+  });
 
   const {
     inputText,
@@ -303,7 +336,9 @@ export default function App() {
           <div
             className={`relative z-90 transition-all duration-300 ease-in-out overflow-hidden shrink-0 ${isSidebarOpen ? 'translate-x-0 w-64 opacity-100' : '-translate-x-full w-0 opacity-0'}`}
           >
-            <Sidebar className="h-full" onClose={toggleSidebar} onNewChat={handleNewChat} />
+            <Suspense fallback={<div className="w-64 h-full bg-muted/30" />}>
+              <Sidebar className="h-full" onClose={toggleSidebar} onNewChat={handleNewChat} />
+            </Suspense>
           </div>
         )}
 
@@ -314,7 +349,7 @@ export default function App() {
             ref={scrollContainerRef}
             onScroll={handleScroll}
             key={activeThreadId || 'new-thread'}
-            className={`${isLauncher && !shouldExpand ? 'flex-none h-2 p-0 overflow-hidden' : 'flex-1 overflow-y-auto px-3 py-3 md:px-4 py-4 md:px-8'} space-y-6 md:space-y-8 scroll-smooth custom-scrollbar`}
+            className={`${isLauncher && !shouldExpand ? 'flex-none h-2 p-0 overflow-hidden' : 'flex-1 overflow-y-auto px-3 py-3 md:px-4 py-4 md:px-8'} scroll-smooth custom-scrollbar relative`}
           >
             {messages.length === 0 && !sendMutation.isPending && !isLauncher && (
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-30 select-none">
@@ -331,43 +366,115 @@ export default function App() {
                 </p>
               </div>
             )}
-            {messages.map((m) => (
-              <MessageItem
-                key={m.id}
-                message={m}
-                onCopy={handleCopy}
-                onEdit={handleEdit}
-                onRegenerate={handleRegenerate}
-                onSwitchBranch={handleSwitchBranch}
-                isModelEnabled={isSelectedModelEnabled}
-              />
-            ))}
-            {sendMutation.isPending && messages.length > 0 && !streamingContent && (
-              <ChatMessage
-                message={{
-                  id: 0,
-                  role: 'assistant',
-                  content: '',
-                  threadId: 0,
-                  createdAt: new Date(),
-                  model: 'AI',
-                }}
-                isThinking={true}
-                onCopy={() => {}}
-              />
-            )}
-            {streamingContent && (
-              <ChatMessage
-                message={{
-                  role: 'assistant',
-                  content: streamingContent,
-                  threadId: 0,
-                  createdAt: new Date(),
-                }}
-                isStreaming
-                onCopy={handleCopy}
-              />
-            )}
+
+            {/* 仮想スクロールコンテナ */}
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const isLoader =
+                  sendMutation.isPending &&
+                  !streamingContent &&
+                  virtualRow.index === messages.length;
+                const isStream = streamingContent && virtualRow.index === messages.length;
+
+                // メッセージインデックス（ローダーやストリーミングを含まない）
+                const messageIndex = virtualRow.index;
+
+                if (isLoader) {
+                  return (
+                    <div
+                      key="loader"
+                      ref={rowVirtualizer.measureElement}
+                      data-index={virtualRow.index}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                        paddingBottom: '24px', // space-y-6 分の余白
+                      }}
+                    >
+                      <ChatMessage
+                        message={{
+                          id: 0,
+                          role: 'assistant',
+                          content: '',
+                          threadId: 0,
+                          createdAt: new Date(),
+                          model: 'AI',
+                        }}
+                        isThinking={true}
+                        onCopy={() => {}}
+                      />
+                    </div>
+                  );
+                }
+
+                if (isStream) {
+                  return (
+                    <div
+                      key="streaming"
+                      ref={rowVirtualizer.measureElement}
+                      data-index={virtualRow.index}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                        paddingBottom: '24px',
+                      }}
+                    >
+                      <ChatMessage
+                        message={{
+                          role: 'assistant',
+                          content: streamingContent,
+                          threadId: 0,
+                          createdAt: streamingDate.current,
+                        }}
+                        isStreaming
+                        onCopy={handleCopy}
+                      />
+                    </div>
+                  );
+                }
+
+                const m = messages[messageIndex];
+                if (!m) return null;
+
+                return (
+                  <div
+                    key={m.id}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                      paddingBottom: '24px', // 元の space-y-6 md:space-y-8 の代わり
+                    }}
+                  >
+                    <MessageItem
+                      message={m}
+                      onCopy={handleCopy}
+                      onEdit={handleEdit}
+                      onRegenerate={handleRegenerate}
+                      onSwitchBranch={handleSwitchBranch}
+                      isModelEnabled={isSelectedModelEnabled}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {/* 自動スクロール用のアンカー */}
             <div ref={messagesEndRef} />
           </div>
 
@@ -436,19 +543,37 @@ export default function App() {
       {/* Overlays at root level with high z-index */}
       {isCommandManagerOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
-          <CommandManager />
+          <Suspense fallback={null}>
+            <CommandManager />
+          </Suspense>
         </div>
       )}
 
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
-          <SettingsView />
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
+            <SettingsView />
+          </Suspense>
         </div>
       )}
 
       {isFileExplorerOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in slide-in-from-right">
-          <FileExplorer threadId={fileExplorerThreadId} />
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
+            <FileExplorer threadId={fileExplorerThreadId} />
+          </Suspense>
         </div>
       )}
 
@@ -484,6 +609,7 @@ function MessageItem({
     queryKey: ['branchInfo', message.id],
     queryFn: () => (message.id ? getMessageBranchInfo(message.id) : null),
     enabled: !!message.id,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: attachments } = useQuery({
@@ -493,6 +619,7 @@ function MessageItem({
       return db.files.where('messageId').equals(message.id).toArray();
     },
     enabled: !!message.id,
+    staleTime: 5 * 60 * 1000,
   });
 
   return (

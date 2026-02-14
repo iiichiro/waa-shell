@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import { useAppStore } from '../../store/useAppStore';
 import type { McpAppUiData } from '../db';
 import { executeMcpToolWithMetadata, getAllMcpTools } from './McpService';
+import { isTauri, searchWeb } from './WebSearchService';
 
 /**
  * ローカルツールの定義インターフェース
@@ -20,6 +21,38 @@ export interface LocalTool {
 }
 
 // import { chatCompletion } from './ModelService';
+import type { ModelInfo } from './ModelService';
+
+// import { chatCompletion } from './ModelService';
+
+const duckDuckGoWebSearchTool: LocalTool = {
+  id: 'duckduckgo_web_search',
+  name: 'DuckDuckGo Web検索',
+  description: 'DuckDuckGoを使用してWeb上の情報を検索します。Tauri環境でのみ利用可能です。',
+  schema: {
+    type: 'function',
+    function: {
+      name: 'duckduckgo_web_search',
+      description:
+        'DuckDuckGoを使用してWeb上の情報を検索します。最新のニュースや天気、一般的な知識などを調べるのに使用します。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: '検索したいキーワードや質問',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  execute: async (args: unknown) => {
+    const { query } = args as { query: string };
+    const results = await searchWeb(query);
+    return JSON.stringify(results, null, 2);
+  },
+};
 
 // ローカルツールのレジストリ
 const localToolRegistry: LocalTool[] = [
@@ -112,7 +145,7 @@ export function getLocalTools(): LocalTool[] {
  * AI に提供するツール定義（OpenAI形式）のリストを取得
  */
 export async function getToolDefinitions(
-  options: { excludeIds?: string[] } = {},
+  options: { excludeIds?: string[]; model?: ModelInfo } = {},
 ): Promise<OpenAI.Chat.ChatCompletionTool[]> {
   const { enabledTools, enabledBuiltInTools } = useAppStore.getState();
   const excludeIds = options.excludeIds || [];
@@ -129,11 +162,37 @@ export async function getToolDefinitions(
   // 組み込みツールの追加
   const builtInToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [];
   if (enabledBuiltInTools.web_search) {
-    // LiteLLM / OpenAI の最新仕様に合わせて type: 'web_search' を使用する
-    // OpenAI SDKの型定義に含まれていない可能性があるため、型アサーションを使用
-    builtInToolDefinitions.push({
-      type: 'web_search',
-    } as unknown as OpenAI.Chat.ChatCompletionTool);
+    // 1. DuckDuckGo Web検索 (Tauri環境専用の関数ツール)
+    if (isTauri() && !excludeIds.includes('duckduckgo_web_search')) {
+      builtInToolDefinitions.push(duckDuckGoWebSearchTool.schema);
+    }
+
+    // 2. ネイティブWeb検索 (LiteLLM / OpenAI)
+    // これは type: 'web_search' という専用の型を持つオブジェクトとして提供される
+    const model = options.model;
+    let shouldAddNativeSearch = false;
+
+    if (!isTauri()) {
+      // 非Tauri環境（ブラウザなど）ではデフォルトで追加
+      shouldAddNativeSearch = true;
+    }
+
+    // LiteLLMの場合のみ、モデルが対応しているかを厳密にチェック
+    if (model?.providerType === 'litellm') {
+      const hasNativeSupport =
+        model.supportsWebSearch ||
+        (model.supportedOpenAiParams?.includes('web_search_options') ?? false);
+
+      // LiteLLMかつ非対応モデルなら追加しない
+      shouldAddNativeSearch = !!hasNativeSupport;
+    }
+
+    if (shouldAddNativeSearch && !excludeIds.includes('web_search')) {
+      // OpenAI SDKの型定義に含まれていない可能性があるため、型アサーションを使用
+      builtInToolDefinitions.push({
+        type: 'web_search',
+      } as unknown as OpenAI.Chat.ChatCompletionTool);
+    }
   }
 
   // MCP サーバから取得したツールを追加
@@ -169,9 +228,20 @@ export async function executeToolWithMetadata(
   console.log(`Executing tool with metadata: ${name}`, args, context);
 
   // ローカルツールの実行
-  const localTool = localToolRegistry.find(
+  let localTool = localToolRegistry.find(
     (t) => (t.schema as { function?: { name: string } }).function?.name === name,
   );
+
+  // 定義済みの組み込みツールの実行
+  if (!localTool) {
+    if (name === 'duckduckgo_web_search' && isTauri()) {
+      localTool = duckDuckGoWebSearchTool;
+    } else if (name === 'web_search' && isTauri()) {
+      // 後方互換性または特定環境での呼び出し対応
+      localTool = duckDuckGoWebSearchTool;
+    }
+  }
+
   if (localTool) {
     const content = await localTool.execute(args, context);
     return { content };

@@ -103,6 +103,7 @@ function _ChatMessage({
             <ChatMessageContent
               message={message}
               isThinking={!!isThinking}
+              isStreaming={isStreaming}
               attachments={attachments}
               onPreviewFile={setPreviewFile}
             />

@@ -281,7 +281,7 @@ export async function sendMessage(
 
     // ツール定義の取得制御
     // supportsToolsがtrueの場合のみツールを取得して渡す
-    const tools = supportsTools ? await getToolDefinitions() : [];
+    const tools = supportsTools ? await getToolDefinitions({ model: currentModel }) : [];
 
     if (protocol === 'response_api') {
       try {

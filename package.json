@@ -1,7 +1,7 @@
 {
   "name": "waa-shell",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.1.13",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -24,8 +24,10 @@
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@tanstack/react-query": "^5.90.20",
+    "@tanstack/react-virtual": "^3.13.18",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-http": "^2.5.7",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "dexie": "^4.3.0",

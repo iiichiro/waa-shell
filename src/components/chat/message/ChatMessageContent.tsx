@@ -18,6 +18,7 @@ const formatJson = (jsonStr: string) => {
 interface ChatMessageContentProps {
   message: Message;
   isThinking: boolean;
+  isStreaming?: boolean;
   attachments?: LocalFile[];
   onPreviewFile: (file: LocalFile) => void;
 }
@@ -25,6 +26,7 @@ interface ChatMessageContentProps {
 export function ChatMessageContent({
   message,
   isThinking,
+  isStreaming,
   attachments,
   onPreviewFile,
 }: ChatMessageContentProps) {
@@ -146,6 +148,7 @@ export function ChatMessageContent({
               )}
 
               {/* ツール実行結果（JSON） - MCP Apps対応時は折りたたみ表示 */}
+              {/* ツール実行結果（JSON） - MCP Apps対応時は折りたたみ表示 */}
               <details
                 className={`group/tool-output border rounded-lg overflow-hidden ${
                   message.mcpAppUi
@@ -190,6 +193,7 @@ export function ChatMessageContent({
             <div className="space-y-2">
               <MarkdownRenderer
                 content={typeof message.content === 'string' ? message.content : ''}
+                isStreaming={isStreaming}
               />
               {/* 添付ファイル（画像）の表示 - テキストの下に配置 */}
               {attachments && attachments.length > 0 && (

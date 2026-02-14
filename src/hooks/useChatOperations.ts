@@ -48,12 +48,57 @@ export function useChatOperations({
       if (response && Symbol.asyncIterator in response) {
         let fullContent = '';
         const iterator = response as AsyncIterable<ChatCompletionChunk>;
-        for await (const chunk of iterator) {
-          const delta = chunk.choices[0]?.delta?.content || '';
-          fullContent += delta;
+
+        // スロットリング：最低30ms間隔でUI更新
+        let lastUpdate = 0;
+        let pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+        let isMounted = true;
+
+        const flushUpdate = () => {
+          if (!isMounted) return;
+          if (pendingUpdate) clearTimeout(pendingUpdate);
+          pendingUpdate = null;
           setStreamingContent(fullContent);
+          // reasoning_content があれば別途セットするなどの拡張が可能
+        };
+
+        try {
+          for await (const chunk of iterator) {
+            const choice = chunk.choices[0];
+            if (!choice) continue;
+
+            const delta = choice.delta?.content || '';
+            fullContent += delta;
+
+            // reasoning_content の蓄積（ExtendedDelta対応）
+            // biome-ignore lint/suspicious/noExplicitAny: Expanded delta type
+            const deltaAny = choice.delta as any;
+            if (deltaAny?.reasoning_content) {
+              // 将来的に思考プロセスを表示する場合はここで reasoning を蓄積する
+              // reasoning += String(deltaAny.reasoning_content);
+            }
+
+            const now = performance.now();
+            if (now - lastUpdate >= 30) {
+              // 30ms以上経過していればすぐ更新
+              flushUpdate();
+              lastUpdate = now;
+            } else if (!pendingUpdate) {
+              // そうでなければ次のフレームで更新をスケジュール
+              pendingUpdate = setTimeout(
+                () => {
+                  flushUpdate();
+                  lastUpdate = performance.now();
+                },
+                30 - (now - lastUpdate),
+              );
+            }
+          }
+        } finally {
+          isMounted = false;
+          flushUpdate();
+          setStreamingContent('');
         }
-        setStreamingContent('');
       }
     },
     [setStreamingContent],

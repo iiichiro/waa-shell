@@ -128,6 +128,19 @@
     --tw-prose-th-borders: hsl(var(--border-invert));
     --tw-prose-td-borders: hsl(var(--border-invert));
   }
+
+  /* コードブロック内の選択色を視認性の高い色に上書き */
+  .custom-markdown pre ::selection,
+  .custom-markdown code ::selection {
+    background-color: rgba(59, 130, 246, 0.5); /* より明るい青の透明度50% */
+    color: #ffffff; /* 文字色を白に固定して視認性を確保 */
+  }
+
+  .custom-markdown pre::-moz-selection,
+  .custom-markdown code::-moz-selection {
+    background-color: rgba(59, 130, 246, 0.5);
+    color: #ffffff;
+  }
 }
 
 @layer components {
